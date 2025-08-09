@@ -1,0 +1,28 @@
+UFI-TOOLS 后端提供专门的反向代理接口 /api/proxy/--你的API地址
+例：
+	const response = await fetch("/api/proxy/--http://xjxj.iot889.cn/app/card/login", {
+                    method: 'POST',
+                    body: data,
+                    headers: {
+                        Host: "xjxj.iot889.cn",
+                        'User-Agent': "...",
+                        "content-type": "application/x-www-form-urlencoded",
+                        "Origin": "http://xjxj.iot889.cn",
+                        "Referer": "http://xjxj.iot889.cn/wap/"
+                    },
+                    credentials: 'omit'
+                });
+                const response1 = await fetch("/api/proxy/--http://xjxj.iot889.cn/app/client/card/get", {
+                    method: 'GET',
+                    headers: {
+                        Host: "xjxj.iot889.cn",
+                        'User-Agent': "...",
+                        "content-type": "application/json;charset=UTF-8",
+                        "Referer": "http://xjxj.iot889.cn/wap/pages/home/home",
+                        "Kano-Cookie": response.headers.get('kano-setck').split(';')[0]
+                    },
+                    credentials: 'omit'
+                });
+你会发现，在一些特殊字段：比如Set-Cookie 和 Cookie 这些header字段中 使用了别名的方式进行传递，这样做的目的是为了让cookie顺利传递到前端（后台也会对Cookie做一些剪裁处理）
+从3.1.5版本开始 Cookie 字段统一换为 Kano-Cookie
+Set-Cookie 字段统一更换为 Kano-Setck

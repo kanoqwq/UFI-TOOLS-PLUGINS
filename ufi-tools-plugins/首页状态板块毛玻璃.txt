@@ -1,0 +1,7 @@
+<style>
+.deviceList li {
+    background-color:transparent !important;
+    backdrop-filter: blur(10px);
+    --webkit-backdrop-filter: blur(10px);
+}
+</style>

@@ -1,0 +1,111 @@
+<script>
+    (() => {
+
+        //杀死指定进程
+        const killProcessByName = async (processName) => {
+            const psResult = await runShellWithRoot(`ps -ef | grep "${processName}" | grep -v grep`);
+            const lines = psResult.content.trim().split('\n');
+
+            if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+                return {
+                    success: false,
+                    content: "未找到相关进程"
+                };
+            }
+
+            let killed = 0;
+
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[1];
+                const name = parts.slice(2).join(' ');
+                if (pid && /^\d+$/.test(pid)) {
+                    const res = await runShellWithRoot(`kill ${pid}`);
+                    killed++;
+                }
+            }
+
+            if (killed === 0) {
+                return {
+                    success: false,
+                    content: "未找到可杀死的进程"
+                };
+            } else {
+                return {
+                    success: true,
+                    content: `已杀死 ${killed} 个进程`
+                };
+            }
+        };
+
+        const btn_enabled = document.createElement('button')
+        btn_enabled.textContent = "安装网口优化"
+        btn_enabled.onclick = async () => {
+            const re = await runShellWithRoot("grep -xF 'sh /data/kano_net_optimization/service.sh &' /sdcard/ufi_tools_boot.sh")
+            if (re.content.includes('kano_net_optimization')) {
+                return createToast("你已经安装过了~", "pink")
+            }
+            createToast("下载...")
+            const res1 = await runShellWithRoot(`
+        /data/data/com.minikano.f50_sms/files/curl -L https://pan.kanokano.cn/d/UFI-TOOLS-UPDATE/plugins/kano_net_optimization.zip -o /data/kano_net_optimization.zip
+        `, 100 * 1000)
+            if (!res1.success) return createToast("下载依赖失败!", 'red')
+
+            createToast("解压文件...")
+            const res2 = await runShellWithRoot(`
+        mkdir -p /data/kano_net_optimization
+        unzip /data/kano_net_optimization.zip -d /data/kano_net_optimization/
+        rm -f /data/kano_net_optimization.zip
+        `)
+            if (!res2.success) return createToast("解压文件出错!", 'red')
+
+            createToast("检查依赖文件，可能需要一点时间...")
+            const res3 = await runShellWithRoot(`
+        ls /data/kano_net_optimization
+        `)
+            if (!res3.success || !res3.content.includes('service.sh')) return createToast("检查依赖文件失败!", 'red')
+
+            createToast("修改目录权限...")
+            const res4 = await runShellWithRoot(`
+        chmod 777 /data/kano_net_optimization/*
+        `)
+            if (!res4.success) return createToast("修改目录权限失败!", 'red')
+
+            createToast("设置自启动...")
+            const res5 = await runShellWithRoot(`grep -qxF 'sh /data/kano_net_optimization/service.sh &' /sdcard/ufi_tools_boot.sh || echo 'sh /data/kano_net_optimization/service.sh &' >> /sdcard/ufi_tools_boot.sh`)
+
+            if (!res5.success) return createToast("设置自启动失败!", 'red')
+
+            createToast("启动...")
+            const res6 = await runShellWithRoot(`
+            sh /data/kano_net_optimization/service.sh &
+        `)
+            if (!res6.success) return createToast("启动失败!", 'red')
+
+            createToast(`
+                设置成功！
+        `, '', 10000)
+        }
+        const btn_disabled = document.createElement('button')
+        btn_disabled.textContent = "卸载网口优化"
+        let times = 0
+        let timer = null
+        btn_disabled.onclick = async () => {
+            timer && clearTimeout(timer)
+            timer = setTimeout(() => {
+                times = 0
+            }, 3000);
+            if (times++ < 2) return createToast('再点一次卸载')
+            const data = await killProcessByName("netif_cpus")
+            createToast(data.content)
+            const res = await runShellWithRoot(`
+        rm -rf /data/kano_net_optimization
+        sed -i '/kano_net_optimization/d' /sdcard/ufi_tools_boot.sh
+        `)
+            if (!res.success) return createToast("卸载失败！", 'red')
+            createToast("卸载成功！", 'red')
+        }
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(btn_enabled)
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(btn_disabled);
+    })()
+</script>

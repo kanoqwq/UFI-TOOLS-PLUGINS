@@ -1,0 +1,809 @@
+
+//<script>
+(() => {
+    /**
+     * Toast消息管理器
+     */
+    const ToastManager = {
+        currentToast: null,
+        
+        // 清除当前toast（避免重复提示）
+        clear: () => {
+            if (ToastManager.currentToast) {
+                ToastManager.currentToast.remove();
+                ToastManager.currentToast = null;
+            }
+        },
+        
+        success: (message, duration = 3000) => {
+            ToastManager.clear();
+            ToastManager.currentToast = createToast(message, 'green', duration);
+        },
+        error: (message, duration = 5000) => {
+            ToastManager.clear();
+            ToastManager.currentToast = createToast(message, 'red', duration);
+        },
+        warning: (message, duration = 4000) => {
+            ToastManager.clear();
+            ToastManager.currentToast = createToast(message, 'orange', duration);
+        },
+        info: (message, duration = 3000) => {
+            ToastManager.clear();
+            ToastManager.currentToast = createToast(message, 'blue', duration);
+        },
+        loading: (message) => {
+            ToastManager.clear(); // 清除之前的loading
+            ToastManager.currentToast = createToast(`⏳ ${message}`, 'blue', 2000);
+        }
+    }
+
+    /**
+     * 检查高级功能是否开启
+     */
+    const checkAdvanceFunc = async () => {
+        const res = await runShellWithRoot('whoami')
+        if (res.content && res.content.includes('root')) {
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 验证高级功能权限
+     */
+    const validateAdvancedPermission = async () => {
+        if (!(await checkAdvanceFunc())) {
+            ToastManager.error("没有开启高级功能，无法使用！")
+            return false
+        }
+        return true
+    }
+
+    //  路径配置统一管理
+    const OPENLIST_CONFIG = {
+        // 主安装目录（统一使用/data/openlist作为主目录）
+        INSTALL_DIR: "/data/openlist",
+        
+        // 核心文件路径
+        get BINARY_PATH() { return `${this.INSTALL_DIR}/openlist`; },
+        get OUTPUT_LOG() { return `${this.INSTALL_DIR}/openlist_output.log`; },
+        get PID_FILE() { return `${this.INSTALL_DIR}/openlist.pid`; },
+        get PASSWORD_FILE() { return `${this.INSTALL_DIR}/password.txt`; },
+        
+        // 公共访问路径
+        PUBLIC_PASSWORD_FILE: "/storage/emulated/0/openlist_password.txt",
+        
+        // 系统配置路径
+        BOOT_SCRIPT_PATH: "/sdcard/ufi_tools_boot.sh",
+        
+        // 下载配置
+        DOWNLOAD_URL: "https://pan.kanokano.cn/d/UFI-TOOLS-UPDATE/plugins/openlist-android-arm64.tar.gz",
+        TEMP_DOWNLOAD_PATH: "/data/openlist_download.tar.gz",
+        TEMP_EXTRACT_DIR: "/data/openlist_temp",
+        
+        // 服务配置
+        DEFAULT_PORT: 5244,
+        WEB_URL: "http://192.168.0.1:5244/"
+    };
+
+    let openlistProcessId = null;
+    let extractedPassword = null;
+
+    // 检查服务是否运行
+    async function isServiceRunning() {
+        // 检查1: 通过PID文件
+        const pidRes = await runShellWithRoot(`cat ${OPENLIST_CONFIG.PID_FILE} 2>/dev/null`);
+        if (pidRes.success && pidRes.content) {
+            const pid = pidRes.content.trim();
+            const psRes = await runShellWithRoot(`ps | grep ${pid}`);
+            if (psRes.success && psRes.content.includes(pid)) {
+                return {running: true, pid};
+            }
+        }
+        
+        // 检查2: 通过进程名
+        const processRes = await runShellWithRoot(`ps | grep '${OPENLIST_CONFIG.BINARY_PATH} server'`);
+        if (processRes.success && processRes.content.includes("openlist server")) {
+            const pidMatch = processRes.content.match(/^\s*(\d+)/);
+            if (pidMatch) {
+                return {running: true, pid: pidMatch[1]};
+            }
+            return {running: true, pid: "unknown"};
+        }
+        
+        return {running: false};
+    }
+
+    /**
+     * 启动Openlist的核心逻辑 - 优化版
+     */
+    const startOpenlist = async () => {
+        // 权限验证
+        if (!(await validateAdvancedPermission())) {
+            return
+        }
+
+        ToastManager.loading("正在启动 Openlist 服务...");
+        
+        try {
+            // 步骤1: 预检查（合并检查逻辑）
+            const {running, pid} = await isServiceRunning();
+            if (running) {
+                ToastManager.warning(`⚠️ 服务已在运行 (PID: ${pid})`);
+                return;
+            }
+            
+            // 步骤2: 环境准备（合并检查和权限设置）
+            const prepareRes = await runShellWithRoot(`
+                # 检查安装文件
+                if [ ! -f "${OPENLIST_CONFIG.BINARY_PATH}" ]; then
+                    echo "NOT_INSTALLED"
+                    exit 1
+                fi
+                
+                # 准备环境
+                mkdir -p ${OPENLIST_CONFIG.INSTALL_DIR}
+                chmod 777 ${OPENLIST_CONFIG.INSTALL_DIR}
+                chmod 777 ${OPENLIST_CONFIG.BINARY_PATH}
+                echo "READY"
+            `);
+            
+            if (!prepareRes.success || prepareRes.content.includes("NOT_INSTALLED")) {
+                ToastManager.error("❌ Openlist 未安装，请先点击安装按钮");
+                return;
+            }
+            
+            // 步骤3: 启动服务并设置自启动（合并操作）
+            ToastManager.loading("启动服务并配置自启动...");
+            const startCmd = `cd ${OPENLIST_CONFIG.INSTALL_DIR} && nohup ./openlist server > ${OPENLIST_CONFIG.OUTPUT_LOG} 2>&1 &`;
+            const startRes = await runShellWithRoot(`
+                cd ${OPENLIST_CONFIG.INSTALL_DIR}
+                nohup ./openlist server > ${OPENLIST_CONFIG.OUTPUT_LOG} 2>&1 &
+                echo $! > ${OPENLIST_CONFIG.PID_FILE}
+                
+                # 同时设置自启动
+                touch ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                chmod 777 ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                sed -i "/openlist server/d" ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                echo "${startCmd}" >> ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                
+                echo "SERVICE_STARTED"
+            `);
+            
+            if (!startRes.success) {
+                ToastManager.error(`❌ 服务启动失败: ${startRes.content}`);
+                return;
+            }
+            
+            // 获取进程ID
+            const pidRes = await runShellWithRoot(`cat ${OPENLIST_CONFIG.PID_FILE}`);
+            if (pidRes.success && pidRes.content) {
+                openlistProcessId = pidRes.content.trim();
+            }
+            
+            // 步骤4: 等待服务初始化并提取密码（优化等待逻辑）
+            ToastManager.loading("等待服务初始化...");
+            let serviceStarted = false;
+            let passwordFound = false;
+            
+            // 减少重试次数，优化等待时间
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 2500)); // 减少等待时间
+                
+                const {running} = await isServiceRunning();
+                if (running) {
+                    serviceStarted = true;
+                    
+                    // 同时尝试提取密码
+                    const outputRes = await runShellWithRoot(`cat ${OPENLIST_CONFIG.OUTPUT_LOG}`);
+                    if (outputRes.success && outputRes.content) {
+                        const passwordRegex = /(?:Successfully created the admin user and the initial password is:|initial password is:)\s*(\S+)/;
+                        const match = outputRes.content.match(passwordRegex);
+                        
+                        if (match && match[1]) {
+                            extractedPassword = match[1];
+                            passwordFound = true;
+                            
+                            // 保存密码
+                            await runShellWithRoot(`
+                                echo "Openlist 初始密码: ${extractedPassword}" > ${OPENLIST_CONFIG.PASSWORD_FILE}
+                                echo "Openlist 初始密码: ${extractedPassword}" > ${OPENLIST_CONFIG.PUBLIC_PASSWORD_FILE}
+                            `);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 统一的结果处理
+            if (!serviceStarted) {
+                ToastManager.error("❌ 服务启动失败，请查看日志");
+                const logRes = await runShellWithRoot(`tail -n 20 ${OPENLIST_CONFIG.OUTPUT_LOG}`);
+                if (logRes.success) {
+                    createToast(
+                        `<div style="width:300px;text-align:left">
+                            错误日志:<br />
+                            <pre style="color:red">${logRes.content}</pre>
+                        </div>`, 
+                        'red', 
+                        8000
+                    );
+                }
+                return;
+            }
+            
+            // 成功启动的统一提示
+            if (passwordFound) {
+                ToastManager.success(
+                    `🎉 Openlist启动成功！<br />` +
+                    `<a href="${OPENLIST_CONFIG.WEB_URL}" target="_blank">${OPENLIST_CONFIG.WEB_URL}</a><br />` +
+                    `初始密码: ${extractedPassword}`,
+                    15000
+                );
+            } else {
+                ToastManager.success(
+                    `✅ Openlist启动成功！<br />` +
+                    `<a href="${OPENLIST_CONFIG.WEB_URL}" target="_blank">${OPENLIST_CONFIG.WEB_URL}</a><br />` +
+                    `请使用查看密码按钮获取登录密码`,
+                    10000
+                );
+            }
+            
+        } catch (error) {
+            ToastManager.error(`❌ 启动过程中发生错误: ${error.message || error}`);
+        }
+    }
+
+    // 创建按钮元素
+    const btn_install_openlist = document.createElement('button');
+    btn_install_openlist.textContent = '📦 安装 Openlist';
+    btn_install_openlist.style.cssText = 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.3s ease;';
+    
+    const btn_uninstall_openlist = document.createElement('button');
+    btn_uninstall_openlist.textContent = '🗑️ 卸载 Openlist';
+    btn_uninstall_openlist.style.cssText = 'background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.3s ease;';
+    
+    const btn_start_openlist = document.createElement('button');
+    btn_start_openlist.textContent = '▶️ 启动 Openlist';
+    btn_start_openlist.style.cssText = 'background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.3s ease;';
+    
+    const btn_stop_openlist = document.createElement('button');
+    btn_stop_openlist.textContent = '⏹️ 停止 Openlist';
+    btn_stop_openlist.style.cssText = 'background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.3s ease;';
+    
+    const btn_view_password = document.createElement('button');
+    btn_view_password.textContent = '🔑 查看密码';
+    btn_view_password.style.cssText = 'background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.3s ease;';
+    
+    const btn_open_web = document.createElement('button');
+    btn_open_web.textContent = '🌐 打开网页';
+    btn_open_web.style.cssText = 'background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); color: #333; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.3s ease;';
+    
+    let disabled_btn_install = false;
+    let uninstall_click_count = 0;
+    let uninstall_timer = null;
+
+         /**
+          * 停止Openlist
+          */
+         const stopOpenlist = async () => {
+             // 权限验证
+             if (!(await validateAdvancedPermission())) {
+                 return
+             }
+
+             ToastManager.loading("正在停止 Openlist 服务...");
+             
+             try {
+                 // 合并所有停止操作
+                 const stopRes = await runShellWithRoot(`
+                     # 查找并终止进程
+                     PIDS=$(ps aux | grep "openlist server" | grep -v grep | awk '{print $2}')
+                     PROCESS_KILLED=false
+                     
+                     if [ -n "$PIDS" ]; then
+                         kill -9 $PIDS
+                         PROCESS_KILLED=true
+                         echo "PROCESS_KILLED"
+                     fi
+                     
+                     # 清理文件
+                     rm -f ${OPENLIST_CONFIG.PID_FILE}
+                     
+                     # 移除开机自启
+                     if [ -f "${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}" ]; then
+                         sed -i "/openlist server/d" ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                         echo "BOOT_REMOVED"
+                     fi
+                     
+                     echo "STOP_COMPLETE"
+                 `);
+                 
+                 // 重置全局变量
+                 openlistProcessId = null;
+                 
+                 if (stopRes.success && stopRes.content.includes("STOP_COMPLETE")) {
+                     if (stopRes.content.includes("PROCESS_KILLED")) {
+                         ToastManager.success("✅ Openlist 服务已停止");
+                     } else {
+                         ToastManager.success("✅ 服务已停止（未发现运行中的进程）");
+                     }
+                 } else {
+                     ToastManager.warning("⚠️ 停止操作可能未完全成功");
+                 }
+                 
+             } catch (error) {
+                 ToastManager.error(`❌ 停止服务时发生错误: ${error.message || error}`);
+             }
+         };
+
+        /**
+         * 查看密码
+         */
+        const viewPassword = async () => {
+            if (!(await validateAdvancedPermission())) {
+                return
+            }
+
+            // 如果已有密码，直接显示
+            if (extractedPassword) {
+                showPasswordInfo(extractedPassword, OPENLIST_CONFIG.PUBLIC_PASSWORD_FILE);
+                return;
+            }
+            
+            ToastManager.loading("正在获取密码...");
+            
+            try {
+                // 尝试从多个来源获取密码
+                const passwordRes = await runShellWithRoot(`
+                    # 尝试从公开文件读取
+                    if [ -f "${OPENLIST_CONFIG.PUBLIC_PASSWORD_FILE}" ]; then
+                        cat ${OPENLIST_CONFIG.PUBLIC_PASSWORD_FILE}
+                        echo "FROM_PUBLIC_FILE"
+                    # 尝试从日志文件读取
+                    elif [ -f "${OPENLIST_CONFIG.OUTPUT_LOG}" ]; then
+                        grep -o "initial password is: [^ ]*" ${OPENLIST_CONFIG.OUTPUT_LOG} | tail -1
+                        echo "FROM_LOG_FILE"
+                    else
+                        echo "NO_PASSWORD_FOUND"
+                    fi
+                `);
+                
+                if (passwordRes.success && passwordRes.content) {
+                    const match = passwordRes.content.match(/(?:Openlist 初始密码: |initial password is: )(\S+)/);
+                    if (match && match[1]) {
+                        extractedPassword = match[1];
+                        showPasswordInfo(extractedPassword, OPENLIST_CONFIG.PUBLIC_PASSWORD_FILE);
+                    } else if (passwordRes.content.includes("NO_PASSWORD_FOUND")) {
+                        ToastManager.error("❌ 未找到密码文件，请先启动服务");
+                    } else {
+                        ToastManager.error("❌ 密码文件格式错误或密码未生成");
+                    }
+                } else {
+                    ToastManager.error("❌ 无法读取密码信息");
+                }
+            } catch (error) {
+                ToastManager.error(`❌ 获取密码时发生错误: ${error.message || error}`);
+            }
+        };
+
+        /**
+         * 安装Openlist
+         */
+        const installOpenlist = async () => {
+            if (disabled_btn_install) return;
+            disabled_btn_install = true;
+            
+            // 权限验证
+            if (!(await validateAdvancedPermission())) {
+                disabled_btn_install = false;
+                return;
+            }
+
+            try {
+                ToastManager.loading("正在安装 Openlist，请稍候...");
+                
+                // 步骤1: 环境检查
+                ToastManager.loading("步骤1/5: 检查安装环境...");
+                const envCheckRes = await runShellWithRoot(`
+                    # 检查curl是否存在
+                    if [ ! -f "/data/data/com.minikano.f50_sms/files/curl" ]; then
+                        echo "CURL_NOT_FOUND"
+                        exit 1
+                    fi
+                    
+                    # 检查磁盘空间（至少需要50MB）
+                    available_space=$(df /data | tail -1 | awk '{print $4}')
+                    if [ "$available_space" -lt 51200 ]; then
+                        echo "INSUFFICIENT_SPACE"
+                        exit 1
+                    fi
+                    
+                    echo "ENV_CHECK_OK"
+                `);
+                
+                if (!envCheckRes.success || !envCheckRes.content.includes("ENV_CHECK_OK")) {
+                    if (envCheckRes.content.includes("CURL_NOT_FOUND")) {
+                        ToastManager.error("❌ 环境检查失败: curl工具未找到，请确保系统完整性");
+                    } else if (envCheckRes.content.includes("INSUFFICIENT_SPACE")) {
+                        ToastManager.error("❌ 环境检查失败: 磁盘空间不足，至少需要50MB可用空间");
+                    } else {
+                        ToastManager.error(`❌ 环境检查失败: ${envCheckRes.content}`);
+                    }
+                    return;
+                }
+                
+                ToastManager.loading("步骤2/5: 开始下载和安装...");
+                
+                // 创建一个Promise来处理安装过程，同时监控进度
+                const installPromise = runShellWithRoot(`
+                    echo "STEP_START: 创建安装目录"
+                    # 创建安装目录
+                    mkdir -p ${OPENLIST_CONFIG.INSTALL_DIR}
+                    chmod 777 ${OPENLIST_CONFIG.INSTALL_DIR}
+                    echo "STEP_COMPLETE: 安装目录创建完成"
+                    
+                    echo "STEP_START: 开始下载文件"
+                    # 下载文件
+                    cd /data
+                    /data/data/com.minikano.f50_sms/files/curl -L ${OPENLIST_CONFIG.DOWNLOAD_URL} -o ${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}
+                    if [ $? -ne 0 ]; then
+                        echo "DOWNLOAD_FAILED"
+                        exit 1
+                    fi
+                    echo "STEP_COMPLETE: 文件下载完成"
+                    
+                    echo "STEP_START: 验证下载文件"
+                    # 验证下载文件完整性
+                    if [ ! -s "${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}" ]; then
+                        echo "DOWNLOAD_EMPTY"
+                        exit 1
+                    fi
+                    
+                    # 检查文件类型（确保是gzip压缩文件）
+                    file_type=$(file "${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}" 2>/dev/null || echo "unknown")
+                    echo "DEBUG_FILE_TYPE: $file_type"
+                    
+                    # 更宽松的文件类型检查，支持多种gzip格式描述
+                    type_check_passed=false
+                    if echo "$file_type" | grep -i -E "gzip|compressed|tar\.gz|archive" >/dev/null 2>&1; then
+                        type_check_passed=true
+                    fi
+                    
+                    # 如果文件类型检查失败，尝试直接验证tar.gz文件完整性
+                    if [ "$type_check_passed" = "false" ]; then
+                        echo "WARN_FILE_TYPE: $file_type (尝试直接验证tar.gz完整性)"
+                        if ! tar -tzf "${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}" >/dev/null 2>&1; then
+                            echo "FILE_TYPE_ERROR: $file_type (tar验证也失败)"
+                            exit 1
+                        else
+                            echo "TAR_VERIFY_SUCCESS: 文件虽然类型检测异常但tar验证通过"
+                        fi
+                    fi
+                    echo "STEP_COMPLETE: 文件验证通过"
+                    
+                    echo "STEP_START: 解压安装文件"
+                    # 解压和安装（增强错误处理）
+                    rm -rf ${OPENLIST_CONFIG.TEMP_EXTRACT_DIR}
+                    mkdir -p ${OPENLIST_CONFIG.TEMP_EXTRACT_DIR}
+                    
+                    # 使用更健壮的解压命令
+                    if ! tar -tzf "${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}" >/dev/null 2>&1; then
+                        echo "ARCHIVE_CORRUPTED"
+                        exit 1
+                    fi
+                    
+                    tar -xzf "${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}" -C "${OPENLIST_CONFIG.TEMP_EXTRACT_DIR}" 2>/dev/null
+                    if [ $? -ne 0 ]; then
+                        echo "EXTRACT_FAILED"
+                        exit 1
+                    fi
+                    
+                    # 验证解压结果
+                    if [ ! -d "${OPENLIST_CONFIG.TEMP_EXTRACT_DIR}" ] || [ -z "$(ls -A "${OPENLIST_CONFIG.TEMP_EXTRACT_DIR}" 2>/dev/null)" ]; then
+                        echo "EXTRACT_EMPTY"
+                        exit 1
+                    fi
+                    echo "STEP_COMPLETE: 文件解压完成"
+                    
+                    echo "STEP_START: 安装可执行文件"
+                    # 查找并复制openlist可执行文件
+                    openlist_file=$(find ${OPENLIST_CONFIG.TEMP_EXTRACT_DIR} -name "openlist" -type f | head -1)
+                    if [ -z "$openlist_file" ]; then
+                        echo "OPENLIST_BINARY_NOT_FOUND"
+                        exit 1
+                    fi
+                    
+                    cp "$openlist_file" ${OPENLIST_CONFIG.BINARY_PATH}
+                    chmod 777 ${OPENLIST_CONFIG.BINARY_PATH}
+                    
+                    # 验证安装
+                    if [ ! -f "${OPENLIST_CONFIG.BINARY_PATH}" ]; then
+                        echo "VERIFY_FAILED"
+                        exit 1
+                    fi
+                    echo "STEP_COMPLETE: 可执行文件安装完成"
+                    
+                    echo "STEP_START: 配置自启动"
+                    # 设置自启动
+                    touch ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                    chmod 777 ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                    sed -i "/openlist server/d" ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                    echo "cd ${OPENLIST_CONFIG.INSTALL_DIR} && nohup ./openlist server > ${OPENLIST_CONFIG.OUTPUT_LOG} 2>&1 &" >> ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+                    echo "STEP_COMPLETE: 自启动配置完成"
+                    
+                    echo "STEP_START: 清理临时文件"
+                    # 清理临时文件
+                    rm -rf ${OPENLIST_CONFIG.TEMP_EXTRACT_DIR} ${OPENLIST_CONFIG.TEMP_DOWNLOAD_PATH}
+                    echo "STEP_COMPLETE: 临时文件清理完成"
+                    
+                    echo "INSTALL_SUCCESS"
+                `, 120 * 1000);
+                
+                // 实时监控安装进度
+                const progressInterval = setInterval(() => {
+                    ToastManager.loading("安装进行中，请耐心等待...");
+                }, 5000);
+                
+                let installRes;
+                try {
+                    installRes = await installPromise;
+                } finally {
+                    clearInterval(progressInterval);
+                }
+                
+                // 显示安装进度信息
+                if (installRes.success && installRes.content) {
+                    const steps = installRes.content.match(/STEP_COMPLETE: [^\n]+/g);
+                    if (steps && steps.length > 0) {
+                        const lastStep = steps[steps.length - 1].replace('STEP_COMPLETE: ', '');
+                        ToastManager.loading(`步骤进度: ${lastStep} (${steps.length}/6)`);
+                    }
+                }
+                
+                // 详细的错误处理和状态检查
+                if (!installRes.success) {
+                    const lastStep = installRes.content.match(/STEP_START: ([^\n]+)/g);
+                    const failedStep = lastStep ? lastStep[lastStep.length - 1].replace('STEP_START: ', '') : '未知步骤';
+                    
+                    if (installRes.content.includes("DOWNLOAD_FAILED")) {
+                        ToastManager.error(`❌ 下载失败 (步骤: ${failedStep})<br />请检查网络连接或下载地址是否可用<br />下载地址: ${OPENLIST_CONFIG.DOWNLOAD_URL}`);
+                    } else if (installRes.content.includes("DOWNLOAD_EMPTY")) {
+                        ToastManager.error(`❌ 下载文件为空 (步骤: ${failedStep})<br />可能网络中断或服务器问题，请重试`);
+                    } else if (installRes.content.includes("FILE_TYPE_ERROR")) {
+                        const fileTypeMatch = installRes.content.match(/FILE_TYPE_ERROR: (.+)/);
+                        const debugTypeMatch = installRes.content.match(/DEBUG_FILE_TYPE: (.+)/);
+                        const warnTypeMatch = installRes.content.match(/WARN_FILE_TYPE: (.+)/);
+                        const fileType = fileTypeMatch ? fileTypeMatch[1] : '未知';
+                        const debugType = debugTypeMatch ? debugTypeMatch[1] : '';
+                        const warnType = warnTypeMatch ? warnTypeMatch[1] : '';
+                        
+                        ToastManager.error(
+                            `❌ 文件格式验证失败 (步骤: ${failedStep})<br />` +
+                            `检测到的文件类型: ${fileType}<br />` +
+                            `${debugType ? `调试信息: ${debugType}<br />` : ''}` +
+                            `${warnType ? `警告信息: ${warnType}<br />` : ''}` +
+                            `期望: gzip/tar.gz压缩包<br />` +
+                            `建议: 文件可能损坏，请重新下载或检查网络连接`
+                        );
+                    } else if (installRes.content.includes("ARCHIVE_CORRUPTED")) {
+                        ToastManager.error(`❌ 压缩包损坏 (步骤: ${failedStep})<br />压缩包已损坏或不完整，请重新下载`);
+                    } else if (installRes.content.includes("EXTRACT_FAILED")) {
+                        ToastManager.error(`❌ 解压失败 (步骤: ${failedStep})<br />文件可能损坏或tar命令不支持该格式`);
+                    } else if (installRes.content.includes("EXTRACT_EMPTY")) {
+                        ToastManager.error(`❌ 解压结果为空 (步骤: ${failedStep})<br />压缩包内容异常或解压路径问题`);
+                    } else if (installRes.content.includes("OPENLIST_BINARY_NOT_FOUND")) {
+                        ToastManager.error(`❌ 可执行文件未找到 (步骤: ${failedStep})<br />压缩包中不包含openlist可执行文件`);
+                    } else if (installRes.content.includes("VERIFY_FAILED")) {
+                        ToastManager.error(`❌ 安装验证失败 (步骤: ${failedStep})<br />openlist可执行文件未找到或复制失败<br />目标路径: ${OPENLIST_CONFIG.BINARY_PATH}`);
+                    } else {
+                        ToastManager.error(`❌ 安装失败 (步骤: ${failedStep})<br />详细错误信息: ${installRes.content || '无错误输出'}`);
+                    }
+                    return;
+                }
+                
+                // 成功状态的详细检查
+                if (installRes.content.includes("INSTALL_SUCCESS")) {
+                    // 检查是否有文件验证警告
+                    const tarVerifySuccess = installRes.content.includes("TAR_VERIFY_SUCCESS");
+                    const warnTypeMatch = installRes.content.match(/WARN_FILE_TYPE: (.+)/);
+                    
+                    let successMessage = 
+                        `🎉 Openlist 安装成功！<br />` +
+                        `✅ 文件已下载并解压到: ${OPENLIST_CONFIG.INSTALL_DIR}<br />` +
+                        `✅ 可执行文件路径: ${OPENLIST_CONFIG.BINARY_PATH}<br />` +
+                        `✅ 自启动脚本已配置<br />`;
+                    
+                    if (tarVerifySuccess && warnTypeMatch) {
+                        successMessage += `ℹ️ 注意: 文件类型检测异常但tar验证通过<br />`;
+                    }
+                    
+                    successMessage += `现在可以使用启动按钮来启动服务`;
+                    
+                    ToastManager.success(successMessage, 10000);
+                } else {
+                    // 提供更详细的诊断信息
+                    ToastManager.warning(
+                        `⚠️ 安装可能未完全成功<br />` +
+                        `原因: 脚本执行完成但未收到成功标识<br />` +
+                        `输出内容: ${installRes.content || '无输出内容'}<br />` +
+                        `建议: 检查网络连接或重新尝试安装`,
+                        8000
+                    );
+                    
+                    // 额外的状态检查
+                    ToastManager.loading("正在检查安装状态...");
+                    setTimeout(async () => {
+                        const checkRes = await runShellWithRoot(`
+                            if [ -f "${OPENLIST_CONFIG.BINARY_PATH}" ]; then
+                                echo "BINARY_EXISTS"
+                                ls -la "${OPENLIST_CONFIG.BINARY_PATH}"
+                            else
+                                echo "BINARY_NOT_FOUND"
+                            fi
+                        `);
+                        
+                        if (checkRes.success && checkRes.content.includes("BINARY_EXISTS")) {
+                            ToastManager.info(
+                                `ℹ️ 检查结果: openlist可执行文件已存在<br />` +
+                                `文件信息: ${checkRes.content.replace('BINARY_EXISTS', '').trim()}<br />` +
+                                `可以尝试启动服务`,
+                                6000
+                            );
+                        } else {
+                            ToastManager.error(
+                                `❌ 检查结果: openlist可执行文件不存在<br />` +
+                                `路径: ${OPENLIST_CONFIG.BINARY_PATH}<br />` +
+                                `请重新安装`,
+                                6000
+                            );
+                        }
+                    }, 1000);
+                }
+                
+            } catch (error) {
+                ToastManager.error(`❌ 安装过程中发生错误: ${error.message || error}`);
+            } finally {
+                disabled_btn_install = false;
+            }
+        };
+
+        /**
+         * 卸载Openlist的核心逻辑
+         */
+        const uninstallOpenlist = async () => {
+            // 权限验证
+            if (!(await validateAdvancedPermission())) {
+                return;
+            }
+            
+            uninstall_click_count++;
+            if (uninstall_click_count < 2) {
+                ToastManager.warning("再点一次确认卸载 Openlist");
+                uninstall_timer = setTimeout(() => {
+                    uninstall_click_count = 0;
+                }, 3000);
+                return;
+            }
+            
+            ToastManager.loading("正在卸载 Openlist...");
+            
+            try {
+                // 步骤1: 停止服务
+                await stopOpenlist();
+                
+                // 步骤2: 删除文件（包含临时文件清理）
+                const removeRes = await runShellWithRoot(`
+                    # 删除整个安装目录
+                    rm -rf ${OPENLIST_CONFIG.INSTALL_DIR}
+                    
+                    # 删除公共密码文件
+                    rm -f ${OPENLIST_CONFIG.PUBLIC_PASSWORD_FILE}
+                    
+                    # 清理临时下载文件和解压目录（使用绝对路径）
+                    rm -f /data/openlist_download.tar.gz
+                    rm -rf /data/openlist_temp
+                    
+                    # 移除自启动配置
+                    sed -i "/openlist server/d" ${OPENLIST_CONFIG.BOOT_SCRIPT_PATH}
+
+		    pkill openlist
+                    
+                    echo "UNINSTALL_COMPLETE"
+                `);
+                
+                if (removeRes.success && removeRes.content.includes("UNINSTALL_COMPLETE")) {
+                    ToastManager.success(
+                        `✅ 卸载 Openlist 成功！<br />` +
+                        `已删除所有相关文件、配置和临时文件`
+                    );
+                } else {
+                    ToastManager.error(
+                        `❌ 卸载过程中出现问题<br />` +
+                        `输出: ${removeRes.content || '无输出'}`
+                    );
+                }
+                
+            } catch (error) {
+                ToastManager.error(`❌ 卸载过程中发生错误: ${error.message || error}`);
+            } finally {
+                uninstall_click_count = 0;
+                if (uninstall_timer) {
+                    clearTimeout(uninstall_timer);
+                    uninstall_timer = null;
+                }
+            }
+        };
+        
+        // 显示密码信息的辅助函数
+        function showPasswordInfo(password, path) {
+            ToastManager.success(
+                `<div style="width:300px;text-align:center">
+                    <strong>初始密码:</strong> ${password}<br />
+                    <strong>文件路径:</strong> ${path}
+                </div>`,
+                8000
+            );
+        }
+
+        // 绑定事件处理器
+        btn_start_openlist.onclick = async () => {
+            await startOpenlist();
+        };
+        
+        btn_stop_openlist.onclick = async () => {
+            await stopOpenlist();
+        };
+        
+        btn_view_password.onclick = viewPassword;
+        
+        btn_install_openlist.onclick = async () => {
+            await installOpenlist();
+        };
+        
+        btn_uninstall_openlist.onclick = async () => {
+            await uninstallOpenlist();
+        };
+        
+        btn_open_web.onclick = () => {
+            window.open(OPENLIST_CONFIG.WEB_URL, '_blank');
+        };
+
+        const openlistContainer = document.querySelector('.functions-container');
+        openlistContainer.insertAdjacentHTML("afterend", `
+<div id="IFRAME_OPENLIST" style="width: 100%; margin-top: 10px;">
+    <div class="title" style="margin: 6px 0 ;">
+        <strong>📁 Openlist 文件管理</strong>
+        <div style="display: inline-block;" id="collapse_openlist_btn"></div>
+    </div>
+    <div class="collapse" id="collapse_openlist" data-name="close" style="height: 0px; overflow: hidden;">
+        <div class="collapse_box">
+        <div id="openlist_action_box" style="margin-bottom:10px;display:flex;gap:10px;flex-wrap:wrap"></div>
+            <ul class="deviceList">
+<li style="padding:10px">
+        <iframe id="openlist_iframe" src="${OPENLIST_CONFIG.WEB_URL}" style="border:none;padding:0;margin:0;width:100%;height:500px;border-radius: 10px;overflow: hidden;opacity: .6;"></iframe>
+</li> </ul>
+        </div>
+    </div>
+</div>
+`);
+        
+        // 添加按钮到容器
+        const openlistBox = document.querySelector('#openlist_action_box');
+        
+        // 为按钮添加统一的btn类
+         [btn_install_openlist, btn_uninstall_openlist, btn_start_openlist, btn_stop_openlist, btn_view_password, btn_open_web].forEach(btn => {
+             btn.classList.add('btn');
+         });
+         
+         openlistBox.appendChild(btn_install_openlist);
+         openlistBox.appendChild(btn_uninstall_openlist);
+         openlistBox.appendChild(btn_start_openlist);
+         openlistBox.appendChild(btn_stop_openlist);
+         openlistBox.appendChild(btn_view_password);
+         openlistBox.appendChild(btn_open_web);
+        
+        // 初始化折叠功能
+        collapseGen("#collapse_openlist_btn", "#collapse_openlist", "#collapse_openlist", (e) => { });
+    })()
+//</script>

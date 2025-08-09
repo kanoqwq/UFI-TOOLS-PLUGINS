@@ -1,0 +1,60 @@
+<script>
+    (async () => {
+        const checkAdvanceFunc = async () => {
+            const res = await runShellWithRoot('whoami')
+            if (res.content) {
+                if (res.content.includes('root')) {
+                    return true
+                }
+            }
+            return false
+        }
+        const addBtn = document.createElement('button')
+        addBtn.textContent = "安装自动WIFI";
+        addBtn.onclick = async () => {
+            if (!await checkAdvanceFunc()) {
+                createToast("请先启用高级功能", 'red');
+                return;
+            }
+            await runShellWithRoot("mkdir /data/kano_auto_wifi/")
+            createToast("下载组件中..")
+            let res = await runShellWithRoot("/data/data/com.minikano.f50_sms/files/curl -L https://update.mcrkqm.cn/T/auto_wifi.zip --output /data/kano_auto_wifi/d.zip", 100 * 1000)
+            let res1 = await runShellWithRoot(`
+            unzip -o -qq /data/kano_auto_wifi/d.zip -d /data/kano_auto_wifi/
+        `)
+            let res2 = await runShellWithRoot("ls /data/kano_auto_wifi/")
+            if (!res2.content.includes("auto_wifi.sh")) {
+                createToast("下载组件失败！")
+                return
+            }
+            let res3 = await runShellWithRoot("chmod 755 /data/kano_auto_wifi/*")
+            createToast("设置自启动...", '')
+            const res4 = await runShellWithRoot(`grep -qxF 'nohup sh /data/kano_auto_wifi/auto_wifi.sh >/dev/null 2>&1 &' /sdcard/ufi_tools_boot.sh || echo 'nohup sh /data/kano_auto_wifi/auto_wifi.sh >/dev/null 2>&1 &' >> /sdcard/ufi_tools_boot.sh`)
+            if (!res4.success) return createToast("设置自启动失败!", 'red')
+            createToast("启动脚本...")
+            const res6 = await runShellWithRoot(`nohup sh /data/kano_auto_wifi/auto_wifi.sh >/dev/null 2>&1 &`)
+            if (!res6.success) return createToast("启动脚本失败!", 'red')
+            createToast("安装成功！", 'pink')
+        }
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(addBtn)
+
+        const delBtn = document.createElement('button')
+        delBtn.textContent = "移除自动WIFI";
+        delBtn.onclick = async () => {
+            if (!await checkAdvanceFunc()) {
+                createToast("请先启用高级功能", 'red');
+                return;
+            }
+            const res = await runShellWithRoot(`
+        /data/ssh/common/opensshd.init stop
+        rm -rf /data/kano_auto_wifi
+        ps -ef | grep auto_wifi.sh | grep -v grep | awk '{print $2}' | xargs -r kill
+        `)
+            await runShellWithRoot(`sed -i '/auto_wifi\.sh/d' /sdcard/ufi_tools_boot.sh`)
+            if (!res.success) return createToast("卸载失败！", 'red')
+            createToast("卸载成功！", 'red')
+        }
+
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(delBtn)
+    })()
+</script>

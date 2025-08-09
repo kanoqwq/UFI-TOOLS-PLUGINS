@@ -1,0 +1,382 @@
+<script>
+    (async () => {
+        const CONFIG_FILE = "/sdcard/kano_charge_control_config.conf"
+        const SH_FILE = "/sdcard/kano_charge_control.sh"
+        const LOG_FILE = "/sdcard/kano_charge_control_log.log"
+        const BOOT_SH_FILE = "/sdcard/ufi_tools_boot.sh"
+        const NAME = "kano_charge_control"
+        //配置
+        let CONFIG = {
+            enabled: false,
+            max_charge: 80,
+            start_charge: 20
+        }
+
+        const SCRIPT_CONTENT = `#!/system/bin/sh
+CONFIG_FILE="${CONFIG_FILE}"
+LOG_FILE="${LOG_FILE}"
+SLEEP_INTERVAL=5
+
+CHARGE_PATHS="/sys/class/power_supply/interface/battery_charging_enabled \
+/sys/class/zte_power_supply/zte_battery/battery_charging_enabled \
+/sys/class/power_supply/battery/battery_charging_enabled"
+
+LAST_STATE=-1  # 0 为关闭充电，1 为开启充电
+
+#先清空LOG
+rm -rf $LOG_FILE
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"
+}
+
+log "充电控制脚本启动..."
+
+while true; do
+    if [ ! -f "$CONFIG_FILE" ]; then
+        log "配置文件不存在：$CONFIG_FILE"
+        sleep "$SLEEP_INTERVAL"
+        continue
+    fi
+
+    MAX_CHARGE=$(grep '^max_charge=' "$CONFIG_FILE" | cut -d= -f2)
+    START_CHARGE=$(grep '^start_charge=' "$CONFIG_FILE" | cut -d= -f2)
+
+    if [ -z "$MAX_CHARGE" ] || [ -z "$START_CHARGE" ]; then
+        log "配置文件格式错误"
+        sleep "$SLEEP_INTERVAL"
+        continue
+    fi
+
+    if [ ! -f /sys/class/power_supply/battery/capacity ]; then
+        log "无法读取电池容量"
+        sleep "$SLEEP_INTERVAL"
+        continue
+    fi
+
+    CAPACITY=$(cat /sys/class/power_supply/battery/capacity)
+
+    if [ "$CAPACITY" -ge "$MAX_CHARGE" ]; then
+        if [ "$LAST_STATE" != "0" ]; then
+            log "当前电量 $CAPACITY% ≥ 最大 $MAX_CHARGE%，准备关闭充电"
+            for path in $CHARGE_PATHS; do
+                if [ -w "$path" ]; then
+                    echo 0 > "$path"
+                    log "已关闭充电"
+                fi
+            done
+            LAST_STATE=0
+        fi
+    elif [ "$CAPACITY" -le "$START_CHARGE" ]; then
+        if [ "$LAST_STATE" != "1" ]; then
+            log "当前电量 $CAPACITY% ≤ 最小 $START_CHARGE%，准备开启充电"
+            for path in $CHARGE_PATHS; do
+                if [ -w "$path" ]; then
+                    echo 1 > "$path"
+                    log "已开启充电"
+                fi
+            done
+            LAST_STATE=1
+        fi
+    fi
+    sleep "$SLEEP_INTERVAL"
+done`
+
+        const html = `
+<div class="title">充电控制器</div>
+<div class="content" style="max-height: 90%;font-size:14px;overflow-y: scroll; padding-top: 10px; width: 66vw; max-width: 400px;">
+    <span>总开关：</span>
+    <div style="margin-top: 8px;display: inline-block;" id="collapse_charge_plugin_btn"></div>
+    <div id="collapse_charge_plugin" class="collapse" data-name="close" style="height: 0px; overflow: auto;">
+        <div class="collapse_box" style="overflow:hidden">
+            <div style="margin: 10px 0;display:flex;justify-content:space-between;align-items:center">
+                <span style="min-width: 6em;">触发充电(%):</span><input id="start_charge_val" style="flex:1;width:100%" type="range" id="charge-threshold" min="1" max="100" value="80"><span id="start_charge_label" style="min-width: 4em">20 %</span>
+            </div>
+            <div style="margin: 10px 0;display:flex;justify-content:space-between;align-items:center">
+                <span style="min-width: 6em;">停止充电(%):</span><input id="stop_charge_val" style="flex:1;width:100%" type="range" id="charge-threshold" min="1" max="100" value="20"><span id="stop_charge_label" style="min-width: 4em">20 %</span>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:10px">
+                <button onclick="submit_charge_settings()" style="flex:1" data-i18n="submit_btn">提交</button>
+            <button onclick="enable_charge()">启用充电</button>
+            <button onclick="disable_charge()">禁用充电</button>
+            </div>
+            
+            <div style="box-sizing:border-box">
+                <div class="title" style="font-size:14px;margin-bottom:10px">日志</div>
+                <textarea id="charger_log" disabled style="margin-bottom:10px;border:none;box-sizing:border-box;width:100%;min-height:100px"></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="btn" style="text-align: right;">
+    <button type="button" onclick="close_charge_settings()" data-i18n="close_btn">关闭</button>
+</div>
+`
+
+        //检查高级功能是否开启
+        const checkRoot = async () => {
+            try {
+                const res = await runShellWithRoot('whoami');
+                return res.success && res.content.includes('root');
+            } catch {
+                return false;
+            }
+        };
+
+
+        //上传脚本文件，移动到机内目标目录
+        const uploadFile = async (filename, content, destPath) => {
+            try {
+                const file = new File([content], filename, { type: "text/plain" });
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const uploadRes = await (await fetch(`${KANO_baseURL}/upload_img`, {
+                    method: "POST",
+                    headers: common_headers,
+                    body: formData,
+                })).json();
+
+                if (uploadRes.url) {
+                    const tempPath = `/data/data/com.minikano.f50_sms/files${uploadRes.url}`;
+                    const moveRes = await runShellWithRoot(`mv ${tempPath} ${destPath}`);
+                    if (moveRes.success) {
+                        return true;
+                    } else { throw new Error(`移动文件失败: ${moveRes.content}`); }
+                } else { return false; }
+            } catch (e) {
+                return false;
+            }
+        };
+
+        // 切换充电状态
+        const toggleCharge = async (enableCharge) => {
+            try {
+                const flag = enableCharge ? "1" : "0";
+                const res = await runShellWithRoot(`
+                    echo ${flag} > /sys/class/power_supply/interface/battery_charging_enabled
+                    echo ${flag} > /sys/class/zte_power_supply/zte_battery/battery_charging_enabled
+                    echo ${flag} > /sys/class/power_supply/battery/battery_charging_enabled
+                `);
+                return res.success;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        //获取设置
+        const getConfig = async () => {
+            if (!(await checkRoot())) {
+                return false;
+            }
+            const res = await runShellWithRoot(`timeout 2s  awk \'{print}\' ${CONFIG_FILE}`);
+            const res1 = await runShellWithRoot(`timeout 2s  awk \'{print}\' ${BOOT_SH_FILE}`);
+            if (res.success) {
+                const configText = res.content
+                const maxMatch = configText.match(/max_charge=(\d+)/);
+                const startMatch = configText.match(/start_charge=(\d+)/);
+
+                const maxCharge = maxMatch ? parseInt(maxMatch[1], 10) : null;
+                const startCharge = startMatch ? parseInt(startMatch[1], 10) : null;
+
+                if (maxCharge) {
+                    CONFIG.max_charge = maxCharge
+                }
+                if (startCharge) {
+                    CONFIG.start_charge = startCharge
+                }
+            }
+            if (res1) {
+                let enabled = res1.content.includes(NAME)
+                CONFIG.enabled = enabled
+                localStorage.setItem('collapse_charge_plugin', enabled ? 'open' : 'close')
+            }
+        }
+
+
+        //获取日志
+        const getLog = async () => {
+            if (!(await checkRoot())) {
+                return false;
+            }
+            let res = await runShellWithRoot(`timeout 2s  awk \'{print}\' ${LOG_FILE}`);
+            const charger_log = document.querySelector('#charger_log')
+            if (charger_log) {
+                charger_log.value = res.content
+            }
+        }
+
+        //杀死指定进程
+        const killProcessByName = async (processName) => {
+            const psResult = await runShellWithRoot(`ps -ef | grep "${processName}" | grep -v grep`);
+            const lines = psResult.content.trim().split('\n');
+
+            if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+                return {
+                    success: false,
+                    content: "未找到相关进程"
+                };
+            }
+
+            let killed = 0;
+
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[1];
+                const name = parts.slice(2).join(' ');
+                if (pid && /^\d+$/.test(pid)) {
+                    const res = await runShellWithRoot(`kill ${pid}`);
+                    killed++;
+                }
+            }
+
+            if (killed === 0) {
+                return {
+                    success: false,
+                    content: "未找到可杀死的进程"
+                };
+            } else {
+                return {
+                    success: true,
+                    content: `已杀死 ${killed} 个进程`
+                };
+            }
+        };
+
+        //设置阈值
+        const setRange = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+            //清除日志
+            await runShellWithRoot(`timeout 2s  echo "max_charge=${CONFIG.max_charge}\nstart_charge=${CONFIG.start_charge}" > ${CONFIG_FILE}`);
+            const charger_log = document.querySelector('#charger_log')
+            await killProcessByName(NAME)
+            await runShellWithRoot(`sh ${SH_FILE} &`)
+            createToast("设置成功，等待日志刷新...")
+        }
+
+        //卸载
+        const uninstall = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+            await runShellWithRoot(`sed -i '/kano_charge_control/d' /sdcard/ufi_tools_boot.sh`)
+            await runShellWithRoot(`rm -rf ${CONFIG_FILE}`)
+            await runShellWithRoot(`rm -rf ${SH_FILE}`)
+            await runShellWithRoot(`rm -rf ${LOG_FILE}`)
+            await killProcessByName(NAME)
+            createToast("正在恢复充电模式")
+            await toggleCharge(true)
+            createToast("充电模式已恢复")
+            return createToast("脚本已停用")
+        }
+
+        //安装
+        const install = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+            //上传
+            if (!await uploadFile("kano_charge_control.sh", SCRIPT_CONTENT, SH_FILE)) {
+                return createToast("传输文件失败！", "red")
+            }
+            await runShellWithRoot(`grep -qxF 'sh ${SH_FILE} &' /sdcard/ufi_tools_boot.sh || echo 'sh ${SH_FILE} &' >> /sdcard/ufi_tools_boot.sh`)
+            await runShellWithRoot(`sh ${SH_FILE} &`)
+            return createToast("已启用并设为自启动")
+        }
+
+        window.submit_charge_settings = async () => {
+            if (Number(CONFIG.max_charge) <= Number(CONFIG.start_charge)) {
+                return createToast("触发充电值不能大于停止充电值！", 'red')
+            }
+            await setRange()
+        }
+
+        window.enable_charge = async () => {
+            await toggleCharge(true)
+            createToast("设置成功")
+        }
+        window.disable_charge = async () => {
+            await toggleCharge(false)
+            createToast("设置成功")
+        }
+
+        const initWindow = async () => {
+            const start_charge_val = document.querySelector('#start_charge_val')
+            const stop_charge_val = document.querySelector('#stop_charge_val')
+
+            //初始化滑条
+            if (start_charge_val) {
+                const start_charge_label = document.querySelector('#start_charge_label')
+                start_charge_label.innerHTML = CONFIG.start_charge + " %"
+                start_charge_val.value = CONFIG.start_charge
+                start_charge_val.oninput = (e) => {
+                    const target = e.target
+                    start_charge_label.innerHTML = target.value + " %"
+                    CONFIG.start_charge = target.value
+                }
+            }
+            if (stop_charge_val) {
+                const stop_charge_label = document.querySelector('#stop_charge_label')
+                stop_charge_label.innerHTML = CONFIG.max_charge + " %"
+                stop_charge_val.value = CONFIG.max_charge
+                stop_charge_val.oninput = (e) => {
+                    const target = e.target
+                    stop_charge_label.innerHTML = target.value + " %"
+                    CONFIG.max_charge = target.value
+                }
+            }
+        }
+
+
+        const el = document.createElement('div')
+        el.id = "charge_plugin"
+        el.classList.add('modal')
+        el.style.opacity = "1"
+        el.style.display = "none"
+        el.innerHTML = html
+        document.querySelector('.container').appendChild(el)
+
+
+
+        //创建折叠开关
+        collapseGen('#collapse_charge_plugin_btn', '#collapse_charge_plugin', 'collapse_charge_plugin', async (status) => {
+            //设置总开关
+            if (status == "open") {
+                createToast("开启中..")
+                await setRange()
+                await install()
+                CONFIG.enabled = true
+            } else {
+                createToast("关闭中..")
+                await uninstall()
+                CONFIG.enabled = false
+            }
+        })
+
+        await getConfig()
+        initWindow()
+
+        const btn = document.createElement('button')
+        let timer = null
+        btn.textContent = "充电控制器"
+        btn.onclick = async (e) => {
+            showModal("#charge_plugin")
+            timer && timer()
+            getLog()
+            timer = requestInterval(getLog, 2000)
+            await getConfig()
+            initWindow()
+        }
+
+        window.close_charge_settings = () => {
+            timer && timer()
+            closeModal('#charge_plugin')
+        }
+        document.querySelector('.actions-buttons').appendChild(btn)
+    })();
+</script>

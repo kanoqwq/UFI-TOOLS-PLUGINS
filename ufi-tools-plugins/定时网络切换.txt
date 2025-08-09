@@ -1,0 +1,654 @@
+<script>
+(() => {
+    // 创建插件按钮
+    const createButton = () => {
+        if (!document.querySelector('#networkSwitchBtn')) {
+            const btn = document.createElement('button');
+            btn.id = 'networkSwitchBtn';
+            btn.textContent = '双时段网络切换';
+            btn.onclick = showNetworkSwitchPanel;
+            btn.style.cssText = `
+                margin:4px; padding:6px 12px;
+                background:rgba(74,144,226,0.2);
+                border:1px solid #4a90e2; border-radius:4px;
+                color:white; font-size:12px;
+            `;
+            (document.querySelector('#toolbox_buttons') || document.querySelector('.collapse_box')).appendChild(btn);
+        }
+    };
+
+    // 显示网络切换面板
+    const showNetworkSwitchPanel = () => {
+        const panel = document.querySelector('.network-switch-panel');
+        if (panel) {
+            panel.remove();
+            return;
+        }
+
+        // 创建面板
+        const newPanel = document.createElement('div');
+        newPanel.className = 'network-switch-panel';
+        newPanel.style.cssText = `
+            padding:12px; margin:8px 0; border-radius:8px;
+            background:rgba(255,255,255,0.1); font-size:13px;
+        `;
+        newPanel.innerHTML = `
+            <div style="font-weight:bold; margin-bottom:8px; color:#4fc3f7;">
+                ⏱️ 双时段网络切换（自守护版）
+                <span style="float:right; font-size:12px; cursor:pointer" onclick="this.parentNode.parentNode.remove()">×</span>
+            </div>
+            <div>
+                <!-- 时段设置部分保持不变 -->
+                <div style="background:rgba(0,0,0,0.1); padding:8px; border-radius:4px; margin-bottom:10px;">
+                    <strong>时段1设置</strong>
+                    <label style="display:block; margin-top:6px; margin-bottom:8px;">
+                        <span style="display:inline-block; width:80px;">网络模式:</span>
+                        <select id="period1ModeSelect" style="padding:4px; border-radius:4px; background:rgba(0,0,0,0.2); color:white; border:1px solid #4a90e2;">
+                            <option value="WL_AND_5G">5G/4G/3G</option>
+                            <option value="LTE_AND_5G">5G NSA</option>
+                            <option value="Only_5G">5G SA</option>
+                            <option value="WCDMA_AND_LTE">4G/3G</option>
+                            <option value="Only_LTE">仅4G</option>
+                            <option value="Only_WCDMA">仅3G</option>
+                        </select>
+                    </label>
+                    <label style="display:block; margin-bottom:8px;">
+                        <span style="display:inline-block; width:80px;">切换时间:</span>
+                        <input id="period1TimeInput" type="time" style="padding:4px; border-radius:4px; background:rgba(0,0,0,0.2); color:white; border:1px solid #4a90e2;">
+                    </label>
+                    <label style="display:block; margin-bottom:8px;">
+                        <span style="display:inline-block; width:80px;">时段名称:</span>
+                        <input id="period1NameInput" type="text" placeholder="例如：日间模式" style="padding:4px; border-radius:4px; background:rgba(0,0,0,0.2); color:white; border:1px solid #4a90e2;">
+                    </label>
+                </div>
+                
+                <div style="background:rgba(0,0,0,0.1); padding:8px; border-radius:4px; margin-bottom:10px;">
+                    <strong>时段2设置</strong>
+                    <label style="display:block; margin-top:6px; margin-bottom:8px;">
+                        <span style="display:inline-block; width:80px;">网络模式:</span>
+                        <select id="period2ModeSelect" style="padding:4px; border-radius:4px; background:rgba(0,0,0,0.2); color:white; border:1px solid #4a90e2;">
+                            <option value="WL_AND_5G">5G/4G/3G</option>
+                            <option value="LTE_AND_5G">5G NSA</option>
+                            <option value="Only_5G">5G SA</option>
+                            <option value="WCDMA_AND_LTE">4G/3G</option>
+                            <option value="Only_LTE">仅4G</option>
+                            <option value="Only_WCDMA">仅3G</option>
+                        </select>
+                    </label>
+                    <label style="display:block; margin-bottom:8px;">
+                        <span style="display:inline-block; width:80px;">切换时间:</span>
+                        <input id="period2TimeInput" type="time" style="padding:4px; border-radius:4px; background:rgba(0,0,0,0.2); color:white; border:1px solid #4a90e2;">
+                    </label>
+                    <label style="display:block; margin-bottom:8px;">
+                        <span style="display:inline-block; width:80px;">时段名称:</span>
+                        <input id="period2NameInput" type="text" placeholder="例如：夜间模式" style="padding:4px; border-radius:4px; background:rgba(0,0,0,0.2); color:white; border:1px solid #4a90e2;">
+                    </label>
+                </div>
+                
+                <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <button onclick="saveNetworkSwitchConfig()" style="flex:1; min-width:120px; padding:6px; background:#4a90e2; border:none; border-radius:4px; color:white;">保存配置</button>
+                    <button onclick="checkCurrentNetworkStatus()" style="flex:1; min-width:120px; padding:6px; background:#4CAF50; border:none; border-radius:4px; color:white;">检查状态</button>
+                    <button onclick="stopService()" style="flex:1; min-width:120px; padding:6px; background:#f44336; border:none; border-radius:4px; color:white;">停止服务</button>
+                    <button onclick="loadCurrentConfig()" style="flex:1; min-width:120px; padding:6px; background:#9c27b0; border:none; border-radius:4px; color:white;">读取配置</button>
+                    <button onclick="showSwitchLogs()" style="flex:1; min-width:120px; padding:6px; background:#ff9800; border:none; border-radius:4px; color:white;">查看日志</button>
+                    <button onclick="clearSwitchLogs()" style="flex:1; min-width:120px; padding:6px; background:#607d8b; border:none; border-radius:4px; color:white;">清除日志</button>
+                    <button id="dependencyBtn" onclick="toggleDependencies()" style="flex:1; min-width:120px; padding:6px; background:#00bcd4; border:none; border-radius:4px; color:white;">安装依赖</button>
+                </div>
+                <div style="margin-top:12px;">
+                    <label style="display:flex; align-items:center;">
+                        <input type="checkbox" id="autoStartCheckbox" style="margin-right:8px;">
+                        <span>开机自动启动</span>
+                    </label>
+                </div>
+                <div id="networkStatusInfo" style="margin-top:12px; padding:8px; background:rgba(0,0,0,0.2); border-radius:4px; font-size:12px; display:none;"></div>
+            </div>
+        `;
+
+        // 添加到页面
+        (document.querySelector('.collapse_box') || document.body).appendChild(newPanel);
+        
+        // 加载开机启动状态
+        loadAutoStartStatus();
+        // 检查依赖状态并更新按钮
+        checkDependencyStatus();
+    };
+
+    // 检查依赖状态
+    const checkDependencyStatus = async () => {
+        try {
+            const res = await runShellWithRoot('[ -f "/data/data/com.termux/files/home/kano_zreq/kano_zreq" ] && echo "installed" || echo "not_installed"');
+            const isInstalled = res.content.trim() === 'installed';
+            const btn = document.querySelector('#dependencyBtn');
+            if (btn) {
+                btn.textContent = isInstalled ? '卸载依赖' : '安装依赖';
+                btn.style.background = isInstalled ? '#ff5722' : '#00bcd4';
+            }
+        } catch (e) {
+            console.log('检查依赖状态失败:', e);
+        }
+    };
+
+    // 切换依赖状态（安装/卸载）
+    const toggleDependencies = async () => {
+        try {
+            const btn = document.querySelector('#dependencyBtn');
+            const isInstalled = btn && btn.textContent === '卸载依赖';
+            
+            if (isInstalled) {
+                // 卸载依赖
+                const confirmUninstall = confirm('确定要卸载依赖工具吗？这将删除所有相关文件并停止服务。');
+                if (!confirmUninstall) return;
+                
+                const infoDiv = document.querySelector('#networkStatusInfo');
+                infoDiv.innerHTML = '正在卸载依赖...';
+                infoDiv.style.display = 'block';
+                
+                // 停止服务
+                await runShellWithRoot('pkill -f "net.sh"');
+                
+                // 删除文件夹
+                await runShellWithRoot('rm -rf /data/data/com.termux/files/home/kano_zreq');
+                
+                infoDiv.innerHTML += '<br><span style="color:green">依赖已成功卸载！</span>';
+                createToast('依赖已卸载', 'green');
+                
+                // 更新按钮状态
+                btn.textContent = '安装依赖';
+                btn.style.background = '#00bcd4';
+            } else {
+                // 安装依赖
+                await installDependencies();
+            }
+        } catch (error) {
+            console.error('切换依赖状态失败:', error);
+            const infoDiv = document.querySelector('#networkStatusInfo');
+            infoDiv.innerHTML += `<br><span style="color:red">操作失败: ${error.message || '未知错误'}</span>`;
+            createToast('操作失败', 'red');
+        }
+    };
+
+    // 安装依赖
+    const installDependencies = async () => {
+        try {
+            const infoDiv = document.querySelector('#networkStatusInfo');
+            infoDiv.innerHTML = '正在检查依赖状态...';
+            infoDiv.style.display = 'block';
+            
+            // 检查是否已安装
+            const checkRes = await runShellWithRoot('[ -f "/data/data/com.termux/files/home/kano_zreq/kano_zreq" ] && echo "installed" || echo "not_installed"');
+            if (checkRes.content.trim() === 'installed') {
+                infoDiv.innerHTML += '<br><span style="color:orange">依赖已经安装，无需重复安装</span>';
+                createToast('依赖已安装', 'orange');
+                checkDependencyStatus(); // 更新按钮状态
+                return;
+            }
+            
+            infoDiv.innerHTML = '正在安装依赖...';
+            
+            // 1. 创建目录
+            await runShellWithRoot('mkdir -p /data/data/com.termux/files/home/kano_zreq');
+            
+            // 2. 下载文件
+            const downloadUrl = 'https://d.feiliupan.com/t/94170968691314688/kano_zreq_cli_aarch64';
+            const downloadPath = '/data/data/com.termux/files/home/kano_zreq/kano_zreq_temp';
+            
+            infoDiv.innerHTML += '<br>正在下载kano_zreq...';
+            await runShellWithRoot(`curl -L -o ${downloadPath} "${downloadUrl}"`);
+            
+            // 3. 验证MD5
+            infoDiv.innerHTML += '<br>正在验证文件完整性...';
+            const md5Check = await runShellWithRoot(`md5sum ${downloadPath} | awk '{print $1}'`);
+            const actualMd5 = md5Check.content.trim();
+            const expectedMd5 = 'a6b621f952c9dd3e97fa34dfe35503ca';
+            
+            if (actualMd5 !== expectedMd5) {
+                await runShellWithRoot(`rm -f ${downloadPath}`);
+                infoDiv.innerHTML += `<br><span style="color:red">MD5校验失败 (实际: ${actualMd5}, 预期: ${expectedMd5})</span>`;
+                throw new Error('MD5校验失败');
+            }
+            
+            // 4. 重命名文件并设置权限
+            infoDiv.innerHTML += '<br>正在设置权限...';
+            await runShellWithRoot(`mv ${downloadPath} /data/data/com.termux/files/home/kano_zreq/kano_zreq`);
+            await runShellWithRoot(`chmod 755 /data/data/com.termux/files/home/kano_zreq/kano_zreq`);
+            
+            // 5. 验证安装
+            const versionCheck = await runShellWithRoot('/data/data/com.termux/files/home/kano_zreq/kano_zreq -version');
+            infoDiv.innerHTML += `<br><span style="color:green">依赖安装成功！</span><br>版本信息: ${versionCheck.content}`;
+            
+            createToast('依赖安装成功！', 'green');
+            
+            // 更新按钮状态
+            checkDependencyStatus();
+        } catch (error) {
+            console.error('安装依赖失败:', error);
+            const infoDiv = document.querySelector('#networkStatusInfo');
+            infoDiv.innerHTML += `<br><span style="color:red">安装失败: ${error.message || '未知错误'}</span>`;
+            createToast('安装依赖失败，请手动安装', 'red');
+        }
+    };
+
+    // 加载开机启动状态
+    const loadAutoStartStatus = async () => {
+        try {
+            const res = await runShellWithRoot('grep -q "NET_SH_AUTO_START" /data/data/com.termux/files/home/storage/shared/ufi_tools_boot.sh && echo "1" || echo "0"');
+            const checkbox = document.querySelector('#autoStartCheckbox');
+            if (checkbox) {
+                checkbox.checked = res.content.trim() === '1';
+            }
+        } catch (e) {
+            console.log('加载开机启动状态失败:', e);
+        }
+    };
+
+    // 更新启动脚本（改进版）
+    const updateBootScript = async (enable) => {
+        try {
+            const bootScriptPath = '/data/data/com.termux/files/home/storage/shared/ufi_tools_boot.sh';
+            let bootScript = '';
+            
+            // 尝试读取现有脚本
+            try {
+                const res = await runShellWithRoot(`cat ${bootScriptPath} 2>/dev/null || echo ""`);
+                bootScript = res.content;
+            } catch (e) {
+                // 文件不存在，创建基本结构
+                bootScript = '#!/system/bin/sh\n';
+            }
+
+            // 清理旧的启动命令（精确匹配）
+            bootScript = bootScript.replace(/#\s*NET_SH_AUTO_START[\s\S]*?(?=\n#|$)/g, '')
+                              .replace(/#\s*启动网络切换脚本[\s\S]*?(?=\n#|$)/g, '')
+                              .trim();
+        
+            if (enable) {
+                // 添加新的启动命令（标准化格式）
+                bootScript += `
+
+# NET_SH_AUTO_START
+# 启动网络切换脚本（自守护版）
+sleep 15  # 等待系统初始化
+if [ -f "/data/data/com.termux/files/home/kano_zreq/net.sh" ]; then
+    nohup sh /data/data/com.termux/files/home/kano_zreq/net.sh > /dev/null 2>&1 &
+fi
+`;
+            }
+
+            // 确保脚本以换行符结尾
+            bootScript = bootScript.trim() + '\n';
+            
+            // 使用可靠的写入方法
+            const cleanContent = bootScript.replace(/'/g, "'\\''");
+            await runShellWithRoot(`cat > ${bootScriptPath} << 'EOF'\n${cleanContent}\nEOF`);
+            await runShellWithRoot(`chmod 755 ${bootScriptPath}`);
+        } catch (error) {
+            console.error('更新启动脚本失败:', error);
+            throw error;
+        }
+    };
+
+    // 停止服务（改进版）
+    const stopService = async () => {
+        try {
+            // 停止运行中的服务
+            await runShellWithRoot('pkill -f "net.sh"');
+            
+            // 彻底清理启动脚本
+            await updateBootScript(false);
+            
+            createToast('服务已停止并移除了开机启动', 'green');
+        } catch (error) {
+            console.error(error);
+            createToast('停止服务失败: ' + (error.message || '未知错误'), 'red');
+        }
+    };
+
+    // 保存网络切换配置（改进版）
+    const saveNetworkSwitchConfig = async () => {
+        const period1Mode = document.querySelector('#period1ModeSelect').value;
+        const period1Time = document.querySelector('#period1TimeInput').value;
+        const period1Name = document.querySelector('#period1NameInput').value || "时段1";
+        const period2Mode = document.querySelector('#period2ModeSelect').value;
+        const period2Time = document.querySelector('#period2TimeInput').value;
+        const period2Name = document.querySelector('#period2NameInput').value || "时段2";
+        const autoStart = document.querySelector('#autoStartCheckbox').checked;
+        
+        if (!period1Time || !period2Time) {
+            createToast('请设置两个时段的切换时间', 'red');
+            return;
+        }
+
+        try {
+            createToast('正在保存配置...', '');
+            
+            // 先停止旧服务
+            await runShellWithRoot('pkill -f "net.sh"');
+            
+            // 创建目录
+            await runShellWithRoot('mkdir -p /data/data/com.termux/files/home/kano_zreq');
+            
+            // 检查依赖是否存在
+            try {
+                await runShellWithRoot('[ -f "/data/data/com.termux/files/home/kano_zreq/kano_zreq" ]');
+            } catch (e) {
+                const confirmInstall = confirm('检测到缺少依赖工具，是否现在安装？');
+                if (confirmInstall) {
+                    await installDependencies();
+                } else {
+                    throw new Error('缺少必要的依赖工具');
+                }
+            }
+            
+            // 生成自守护版net.sh脚本（内容保持不变）
+            const netShContent = `#!/system/bin/sh
+# 切换到工作目录
+cd /data/data/com.termux/files/home/kano_zreq
+
+LOG_FILE="network_switch.log"
+
+# 清理旧的日志文件
+if [ -f "$LOG_FILE" ] && [ $(wc -l < "$LOG_FILE") -gt 200 ]; then
+    tail -n 100 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+fi
+
+echo "$(date +'%Y-%m-%d %H:%M:%S') 脚本启动" >> "$LOG_FILE"
+
+# ========== 用户配置 ==========
+PERIOD1_NAME="${period1Name}"
+PERIOD1_MODE="${period1Mode}"
+PERIOD1_TIME="${period1Time}"
+
+PERIOD2_NAME="${period2Name}"
+PERIOD2_MODE="${period2Mode}"
+PERIOD2_TIME="${period2Time}"
+
+# ========== 全局变量 ==========
+LAST_EXECUTED_MODE=""
+FAILURE_COUNT=0
+MAX_RETRY=3
+
+# ========== 函数定义 ==========
+switch_network() {
+    local target_mode=\$1
+    local period_name=\$2
+    
+    echo "$(date +'%Y-%m-%d %H:%M:%S') 尝试切换到: \${period_name} (\${target_mode})" >> "$LOG_FILE"
+    
+    # 执行切换命令
+    if ./kano_zreq -method POST -body "goformId=SET_BEARER_PREFERENCE&BearerPreference=\${target_mode}" -pwd admin; then
+        echo "$(date +'%Y-%m-%d %H:%M:%S') 切换成功" >> "$LOG_FILE"
+        LAST_EXECUTED_MODE=\${target_mode}
+        FAILURE_COUNT=0
+        return 0
+    else
+        FAILURE_COUNT=\$((FAILURE_COUNT+1))
+        echo "$(date +'%Y-%m-%d %H:%M:%S') 切换失败! 错误码:\$? 重试次数:\${FAILURE_COUNT}" >> "$LOG_FILE"
+        return 1
+    fi
+}
+
+verify_network() {
+    local target_mode=\$1
+    local retry=0
+    
+    while [ \$retry -lt 3 ]; do
+        CURRENT_MODE=\$(./kano_zreq -method GET -pwd admin -params "cmd=net_select" -json | grep -oP '"net_select":"\\K[^"]+')
+        
+        if [ "\$CURRENT_MODE" = "\$target_mode" ]; then
+            echo "$(date +'%Y-%m-%d %H:%M:%S') 验证成功: 当前模式为 \${CURRENT_MODE}" >> "$LOG_FILE"
+            return 0
+        fi
+        
+        echo "$(date +'%Y-%m-%d %H:%M:%S') 验证失败: 期望\${target_mode} 实际\${CURRENT_MODE}" >> "$LOG_FILE"
+        retry=\$((retry+1))
+        sleep 5
+    done
+    
+    return 1
+}
+
+# ========== 自守护主循环 ==========
+while true; do
+    CURRENT_TIME=\$(date +%H:%M)
+    
+    # 时段1检查
+    if [ "\$CURRENT_TIME" = "\$PERIOD1_TIME" ] && [ "\$LAST_EXECUTED_MODE" != "\$PERIOD1_MODE" ]; then
+        if switch_network "\$PERIOD1_MODE" "\$PERIOD1_NAME"; then
+            verify_network "\$PERIOD1_MODE" || echo "$(date +'%Y-%m-%d %H:%M:%S') 警告: 模式验证失败" >> "$LOG_FILE"
+        elif [ \$FAILURE_COUNT -ge \$MAX_RETRY ]; then
+            echo "$(date +'%Y-%m-%d %H:%M:%S') 错误: 达到最大重试次数" >> "$LOG_FILE"
+        fi
+    fi
+    
+    # 时段2检查
+    if [ "\$CURRENT_TIME" = "\$PERIOD2_TIME" ] && [ "\$LAST_EXECUTED_MODE" != "\$PERIOD2_MODE" ]; then
+        if switch_network "\$PERIOD2_MODE" "\$PERIOD2_NAME"; then
+            verify_network "\$PERIOD2_MODE" || echo "$(date +'%Y-%m-%d %H:%M:%S') 警告: 模式验证失败" >> "$LOG_FILE"
+        elif [ \$FAILURE_COUNT -ge \$MAX_RETRY ]; then
+            echo "$(date +'%Y-%m-%d %H:%M:%S') 错误: 达到最大重试次数" >> "$LOG_FILE"
+        fi
+    fi
+    
+    # 检查是否有其他实例运行，确保唯一性
+    RUNNING_INSTANCES=\$(ps -ef | grep "[n]et.sh" | grep -v "\$\$" | wc -l)
+    if [ "\$RUNNING_INSTANCES" -gt 0 ]; then
+        echo "$(date +'%Y-%m-%d %H:%M:%S') 检测到其他实例运行，退出当前进程" >> "$LOG_FILE"
+        exit 0
+    fi
+    
+    sleep 30  # 30秒检查一次
+done
+`;
+            
+            // 写入net.sh文件
+            const encodedContent = btoa(unescape(encodeURIComponent(netShContent)));
+            await runShellWithRoot(`echo '${encodedContent}' | base64 -d > /data/data/com.termux/files/home/kano_zreq/net.sh`);
+            await runShellWithRoot('chmod 755 /data/data/com.termux/files/home/kano_zreq/net.sh');
+            
+            // 更新启动脚本
+            await updateBootScript(autoStart);
+            
+            // 启动服务
+            await runShellWithRoot('nohup sh /data/data/com.termux/files/home/kano_zreq/net.sh > /dev/null 2>&1 &');
+            
+            createToast(`配置保存成功！\\n${period1Name}: ${getNetworkModeName(period1Mode)} @ ${period1Time}\\n${period2Name}: ${getNetworkModeName(period2Mode)} @ ${period2Time}`, 'green');
+        } catch (error) {
+            console.error(error);
+            createToast(`保存失败: ${error.message || '未知错误'}`, 'red');
+        }
+    };
+
+    // 其他功能保持不变（查看日志、清除日志、加载配置、检查状态等）
+    const showSwitchLogs = async () => {
+        try {
+            const res = await runShellWithRoot('tail -n 20 /data/data/com.termux/files/home/kano_zreq/network_switch.log || echo "无日志记录"');
+            alert("最近20条切换日志：\\n\\n" + res.content);
+        } catch (e) {
+            alert("获取日志失败: " + e.message);
+        }
+    };
+
+    const clearSwitchLogs = async () => {
+        try {
+            await runShellWithRoot('echo "" > /data/data/com.termux/files/home/kano_zreq/network_switch.log');
+            createToast('日志已清除', 'green');
+        } catch (e) {
+            createToast('清除日志失败: ' + e.message, 'red');
+        }
+    };
+
+    const loadCurrentConfig = async () => {
+        try {
+            const res = await runShellWithRoot('cat /data/data/com.termux/files/home/kano_zreq/net.sh 2>/dev/null || echo "未找到配置文件"');
+            
+            if (res.content.includes('未找到配置文件')) {
+                createToast('未找到现有配置', 'red');
+                return;
+            }
+            
+            // 解析配置
+            const extractValue = (content, key) => {
+                const match = content.match(new RegExp(`${key}="([^"]*)"`));
+                return match ? match[1] : '';
+            };
+            
+            const config = {
+                period1: {
+                    name: extractValue(res.content, 'PERIOD1_NAME'),
+                    mode: extractValue(res.content, 'PERIOD1_MODE'),
+                    time: extractValue(res.content, 'PERIOD1_TIME')
+                },
+                period2: {
+                    name: extractValue(res.content, 'PERIOD2_NAME'),
+                    mode: extractValue(res.content, 'PERIOD2_MODE'),
+                    time: extractValue(res.content, 'PERIOD2_TIME')
+                }
+            };
+            
+            // 更新UI
+            if (config.period1.mode) document.querySelector('#period1ModeSelect').value = config.period1.mode;
+            if (config.period1.time) document.querySelector('#period1TimeInput').value = config.period1.time;
+            if (config.period1.name) document.querySelector('#period1NameInput').value = config.period1.name;
+            
+            if (config.period2.mode) document.querySelector('#period2ModeSelect').value = config.period2.mode;
+            if (config.period2.time) document.querySelector('#period2TimeInput').value = config.period2.time;
+            if (config.period2.name) document.querySelector('#period2NameInput').value = config.period2.name;
+            
+            createToast('当前配置已加载到表单', 'green');
+        } catch (error) {
+            console.error(error);
+            createToast('读取配置失败', 'red');
+        }
+    };
+
+    const checkCurrentNetworkStatus = async () => {
+        try {
+            const infoDiv = document.querySelector('#networkStatusInfo');
+            infoDiv.innerHTML = '获取状态中...';
+            infoDiv.style.display = 'block';
+            
+            // 获取当前网络模式
+            const modeRes = await runShellWithRoot('/data/data/com.termux/files/home/kano_zreq/kano_zreq -method GET -pwd admin -params "cmd=net_select" -json');
+            let currentMode = '未知';
+            try {
+                const data = JSON.parse(modeRes.content);
+                currentMode = data.net_select || '未知';
+            } catch (e) {
+                currentMode = modeRes.content;
+            }
+            
+            // 检查进程状态
+            let netStatus = '未运行';
+            try {
+                const psRes = await runShellWithRoot('pgrep -f "net.sh"');
+                netStatus = psRes.content.trim() ? `运行中 (PID: ${psRes.content.trim()})` : '未运行';
+            } catch (e) {
+                console.log('检查进程失败:', e);
+            }
+            
+            // 检查开机启动状态
+            let autoStartStatus = '未知';
+            try {
+                const asRes = await runShellWithRoot('grep -q "NET_SH_AUTO_START" /data/data/com.termux/files/home/storage/shared/ufi_tools_boot.sh && echo "已启用" || echo "未启用"');
+                autoStartStatus = asRes.content.trim();
+            } catch (e) {
+                console.log('检查开机启动状态失败:', e);
+            }
+            
+            // 获取配置
+            let configInfo = '\\n\\n配置信息: 无法读取';
+            try {
+                const configRes = await runShellWithRoot('cat /data/data/com.termux/files/home/kano_zreq/net.sh | grep -E "PERIOD[12]_(NAME|MODE|TIME)="');
+                const config = {
+                    period1: { name: '', mode: '', time: '' },
+                    period2: { name: '', mode: '', time: '' }
+                };
+                
+                configRes.content.split('\n').forEach(line => {
+                    if (line.includes('PERIOD1_NAME=')) config.period1.name = line.split('=')[1].replace(/"/g, '');
+                    if (line.includes('PERIOD1_MODE=')) config.period1.mode = line.split('=')[1].replace(/"/g, '');
+                    if (line.includes('PERIOD1_TIME=')) config.period1.time = line.split('=')[1].replace(/"/g, '');
+                    if (line.includes('PERIOD2_NAME=')) config.period2.name = line.split('=')[1].replace(/"/g, '');
+                    if (line.includes('PERIOD2_MODE=')) config.period2.mode = line.split('=')[1].replace(/"/g, '');
+                    if (line.includes('PERIOD2_TIME=')) config.period2.time = line.split('=')[1].replace(/"/g, '');
+                });
+                
+                if (config.period1.mode) {
+                    configInfo = '\\n\\n当前配置:';
+                    configInfo += '\\n' + (config.period1.name || '时段1') + ': ' + 
+                                 getNetworkModeName(config.period1.mode) + ' @ ' + config.period1.time;
+                    configInfo += '\\n' + (config.period2.name || '时段2') + ': ' + 
+                                 getNetworkModeName(config.period2.mode) + ' @ ' + config.period2.time;
+                }
+            } catch (e) {
+                console.log('读取配置失败:', e);
+            }
+            
+            // 获取最近日志
+            let logInfo = '';
+            try {
+                const logRes = await runShellWithRoot('tail -n 3 /data/data/com.termux/files/home/kano_zreq/network_switch.log');
+                logInfo = '\\n\\n最近日志:\\n' + logRes.content;
+            } catch (e) {
+                logInfo = '\\n\\n日志不可用';
+            }
+            
+            infoDiv.innerHTML = `
+                <strong>系统状态</strong>
+                <div style="margin-top:6px;">当前网络模式: <strong>${getNetworkModeName(currentMode)}</strong></div>
+                <div>定时切换脚本: <span style="color:${netStatus.includes('运行中') ? '#4CAF50' : '#f44336'}">${netStatus}</span></div>
+                <div>开机启动: <span style="color:${autoStartStatus === '已启用' ? '#4CAF50' : '#f44336'}">${autoStartStatus}</span></div>
+                ${configInfo}
+                ${logInfo}
+            `;
+        } catch (error) {
+            console.error(error);
+            document.querySelector('#networkStatusInfo').textContent = '获取状态失败: ' + (error.message || '未知错误');
+        }
+    };
+
+    // 获取网络模式名称
+    const getNetworkModeName = (value) => {
+        const modes = {
+            'WL_AND_5G': '5G/4G/3G',
+            'LTE_AND_5G': '5G NSA',
+            'Only_5G': '5G SA',
+            'WCDMA_AND_LTE': '4G/3G',
+            'Only_LTE': '仅4G',
+            'Only_WCDMA': '仅3G'
+        };
+        return modes[value] || value;
+    };
+
+    // 初始化插件
+    const initPlugin = () => {
+        createButton();
+        
+        // 添加DOM变化监听防止按钮消失
+        new MutationObserver(() => {
+            createButton();
+        }).observe(document, {
+            childList: true,
+            subtree: true
+        });
+    };
+
+    // 页面加载处理
+    if (document.readyState === 'complete') {
+        initPlugin();
+    } else {
+        window.addEventListener('load', initPlugin);
+        setTimeout(initPlugin, 1000);
+    }
+
+    // 暴露函数到全局
+    window.saveNetworkSwitchConfig = saveNetworkSwitchConfig;
+    window.checkCurrentNetworkStatus = checkCurrentNetworkStatus;
+    window.showNetworkSwitchPanel = showNetworkSwitchPanel;
+    window.stopService = stopService;
+    window.loadCurrentConfig = loadCurrentConfig;
+    window.showSwitchLogs = showSwitchLogs;
+    window.clearSwitchLogs = clearSwitchLogs;
+    window.toggleDependencies = toggleDependencies;
+})();
+</script>

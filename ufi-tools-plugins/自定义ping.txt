@@ -1,0 +1,188 @@
+<script>
+(() => {
+    const pingContainer = document.createElement('div');
+    pingContainer.style.margin = '10px 0';
+    pingContainer.style.display = 'flex';
+    pingContainer.style.flexDirection = 'column';
+    pingContainer.style.gap = '5px';
+
+    const title = document.createElement('div');
+    title.textContent = 'Ping IP';
+    title.style.fontWeight = 'bold';
+    pingContainer.appendChild(title);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'baidu.com';
+    input.style.padding = '5px';
+    input.style.width = '100%';
+    pingContainer.appendChild(input);
+
+    const paramsContainer = document.createElement('div');
+    paramsContainer.style.display = 'flex';
+    paramsContainer.style.gap = '10px';
+
+    const sizeGroup = document.createElement('div');
+    sizeGroup.style.display = 'flex';
+    sizeGroup.style.flexDirection = 'column';
+    const sizeLabel = document.createElement('div');
+    sizeLabel.textContent = '包大小(字节)';
+    sizeLabel.style.fontSize = '0.8em';
+    const sizeInput = document.createElement('input');
+    sizeInput.type = 'number';
+    sizeInput.placeholder = '默认20';
+    sizeInput.style.width = '80px';
+    sizeInput.style.padding = '5px';
+    sizeInput.min = 10;
+    sizeInput.max = 102400;
+    sizeInput.value = 20;
+    sizeGroup.appendChild(sizeLabel);
+    sizeGroup.appendChild(sizeInput);
+
+    const countGroup = document.createElement('div');
+    countGroup.style.display = 'flex';
+    countGroup.style.flexDirection = 'column';
+    const countLabel = document.createElement('div');
+    countLabel.textContent = '次数';
+    countLabel.style.fontSize = '0.8em';
+    const countInput = document.createElement('input');
+    countInput.type = 'number';
+    countInput.placeholder = '默认5';
+    countInput.style.width = '60px';
+    countInput.style.padding = '5px';
+    countInput.min = 1;
+    countInput.max = 100;
+    countInput.value = 5;
+    countGroup.appendChild(countLabel);
+    countGroup.appendChild(countInput);
+
+    const timeoutGroup = document.createElement('div');
+    timeoutGroup.style.display = 'flex';
+    timeoutGroup.style.flexDirection = 'column';
+    const timeoutLabel = document.createElement('div');
+    timeoutLabel.textContent = '超时(ms)';
+    timeoutLabel.style.fontSize = '0.8em';
+    const timeoutInput = document.createElement('input');
+    timeoutInput.type = 'number';
+    timeoutInput.placeholder = '默认200';
+    timeoutInput.style.width = '80px';
+    timeoutInput.style.padding = '5px';
+    timeoutInput.min = 10;
+    timeoutInput.max = 10000;
+    timeoutInput.value = 200;
+    timeoutGroup.appendChild(timeoutLabel);
+    timeoutGroup.appendChild(timeoutInput);
+
+    sizeInput.addEventListener('change', () => {
+        const size = parseInt(sizeInput.value) || 20;
+        let maxCount = 100;
+        
+        if (size > 2048 && size <= 10240) maxCount = 10;
+        else if (size > 10240 && size <= 20480) maxCount = 5;
+        else if (size > 20480 && size <= 51200) maxCount = 3;
+        else if (size > 51200) maxCount = 1;
+        
+        countInput.max = maxCount;
+        if (parseInt(countInput.value) > maxCount) {
+            countInput.value = maxCount;
+            createToast(`包大小${size}字节时，发包次数不能超过${maxCount}次`, "warning", 3000);
+        }
+    });
+
+    paramsContainer.appendChild(sizeGroup);
+    paramsContainer.appendChild(countGroup);
+    paramsContainer.appendChild(timeoutGroup);
+    pingContainer.appendChild(paramsContainer);
+
+    const pingBtn = document.createElement('button');
+    pingBtn.textContent = "开始 Ping";
+    pingBtn.style.padding = '5px 10px';
+    pingContainer.appendChild(pingBtn);
+
+    const validateInputs = () => {
+        const size = parseInt(sizeInput.value) || 20;
+        if (size < 10 || size > 102400) {
+            createToast("包大小应在10-102400字节之间", "error", 3000);
+            sizeInput.focus();
+            return false;
+        }
+
+        const count = parseInt(countInput.value) || 5;
+        let maxAllowed = 100;
+        
+        if (size > 2048 && size <= 10240) maxAllowed = 10;
+        else if (size > 10240 && size <= 20480) maxAllowed = 5;
+        else if (size > 20480 && size <= 51200) maxAllowed = 3;
+        else if (size > 51200) maxAllowed = 1;
+        
+        if (count < 1 || count > maxAllowed) {
+            createToast(`当前包大小限制发包次数不能超过${maxAllowed}次`, "error", 3000);
+            countInput.focus();
+            return false;
+        }
+
+        const timeout = parseInt(timeoutInput.value) || 200;
+        if (timeout < 10 || timeout > 10000) {
+            createToast("超时时间应在10-10000ms之间", "error", 3000);
+            timeoutInput.focus();
+            return false;
+        }
+
+        return true;
+    };
+
+    pingBtn.onclick = async () => {
+        if (!validateInputs()) return;
+
+        const target = input.value.trim() || 'baidu.com';
+        const size = parseInt(sizeInput.value) || 20;
+        const count = parseInt(countInput.value) || 5;
+        const timeoutMs = parseInt(timeoutInput.value) || 200;
+
+        try {
+            pingBtn.disabled = true;
+            pingBtn.textContent = "Pinging...";
+            
+            const res = await runShellWithRoot(`ping -c ${count} -s ${size} -W ${timeoutMs/1000} ${target}`);
+            
+            const lines = res.content.split('\n');
+            let formattedOutput = lines.map(line => {
+                if (line.includes("time=")) {
+                    return `<div style="color: #4CAF50; margin: 3px 0; text-align: left; font-family: monospace;">${line}</div>`;
+                } else if (line.includes("packets") || line.includes("round-trip")) {
+                    return `<div style="color: #FF9800; margin: 5px 0 3px 0; text-align: left; font-family: monospace; font-weight: bold;">${line}</div>`;
+                } else if (line.includes("PING")) {
+                    return `<div style="color: #2196F3; margin: 0 0 5px 0; text-align: left; font-family: monospace;">${line}</div>`;
+                } else {
+                    return `<div style="margin: 2px 0; text-align: left; font-family: monospace;">${line}</div>`;
+                }
+            }).join('');
+
+            createToast(
+                `<div style="max-width:90vw; min-width:300px;">
+                    <div style="text-align:center; font-weight:bold; margin-bottom:8px; color: #fff;">
+                        Ping结果: ${target}
+                    </div>
+                    <div style="margin-bottom:5px; font-family:monospace; color: #ccc;">
+                        参数: 次数=${count} 大小=${size}字节 超时=${timeoutMs}ms
+                    </div>
+                    ${formattedOutput}
+                </div>`,
+                '',
+                15000
+            );
+        } catch (error) {
+            createToast(`Ping失败: ${error.message || "请检查参数有效性"}`, "error", 5000);
+        } finally {
+            pingBtn.disabled = false;
+            pingBtn.textContent = "开始 Ping";
+        }
+    };
+    
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') pingBtn.click();
+    });
+
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(pingContainer);
+})();
+</script>

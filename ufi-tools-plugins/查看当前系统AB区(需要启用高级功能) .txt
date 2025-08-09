@@ -1,0 +1,13 @@
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button')
+    const bg_kano = document.querySelector('#BG')
+    const img_kano = localStorage.getItem('backgroundUrl') || "";
+    refreshBtn_kano.textContent = "当前分区"
+    refreshBtn_kano.onclick = async() => {
+        const res = await runShellWithRoot("getprop ro.boot.slot_suffix")
+        createToast("你当前的分区是："+res.content.replaceAll('_',"").toUpperCase(),'')
+    }
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>

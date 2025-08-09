@@ -1,0 +1,49 @@
+<script>
+(()=>{
+  let cardNumber = '卡号'
+  let name = "🐋小鲸电信"
+   fetch(`${KANO_baseURL}/proxy/--http://xj.iot998.cn/app/simCard/phoneSimCard?card=${cardNumber}`)
+  .then(res=>res.json())
+  .then(({data})=>{
+    const usedData = data?.consumeFlow
+    const totalData = data?.sumFlow
+    const op = data?.falseOp
+    const expireDate = data?.maxEndTime
+    const netCard = document.querySelector('.net-card');
+    const el = document.createElement('div')
+    const el_title = document.createElement('div')
+    el.style.marginBottom = '0'
+    el.style.gridColumn = '1/-1'
+    el.style.marginLeft = '0px'
+    el.style.marginRight = '0px'
+    el_title.innerHTML = name
+    el_title.style.position = 'absolute'
+    el_title.style.right = '6px'
+    el_title.style.top = '6px'
+    el.style.width = '200px'
+    el.classList.add('wlk')
+    el.classList.add('statusCard')
+    el.classList.add('net-card')
+    el.style.position = 'relative'
+    el.style.padding = "6px 8px 8px 8px"
+    el.style.fontSize = '12px'
+    el.style.boxSizing = 'border-box'
+    el.style.height = '60px'
+    el.innerHTML = `
+    运营商: ${op}<br/>
+    ${(Number(usedData)/1024).toFixed(2)}GB/${(Number(totalData)/1024).toFixed(2)}GB<br/>
+    到期时间：${expireDate.split(' ')[0]}`
+    el.appendChild(el_title)
+    netCard?.parentElement?.appendChild(el)
+  })
+})()
+</script>
+<style>
+.statusCard{box-sizing:border-box}
+@media (max-width: 650px) {
+    .wlk {
+        margin-left:3px !important;
+        margin-right:3px !important;
+    }
+}
+</style>

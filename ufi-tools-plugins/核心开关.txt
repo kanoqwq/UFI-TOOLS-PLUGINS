@@ -1,0 +1,39 @@
+<script>
+    (() => {
+        setTimeout(async () => {
+            const cpuCoreQuery = async (number = 0) => {
+                const shell = `cat /sys/devices/system/cpu/cpu${number}/online`
+                const result = await runShellWithRoot(shell)
+                if (result.success) {
+                    return result.content && (result.content.replace('\n', ''))
+                }
+                return '0'
+            }
+            const cpuCoreToggle = async (number = 0, flag = true) => {
+                const shell = `echo ${flag ? '1' : '0'} > /sys/devices/system/cpu/cpu${number}/online`
+                const result = await runShellWithRoot(shell)
+                result.success ? createToast(`${flag ? "开启" : "关闭"}核心${number + 1}成功`, 'green') : createToast(`${flag ? "开启" : "关闭"}核心${number + 1}失败`, 'red')
+            }
+            for (let i = 0; i < 8; i++) {
+                try {
+                    let enabled = await cpuCoreQuery(i)
+                    if (enabled) {
+                        const btn = document.createElement('button')
+                        btn.style.backgroundColor = enabled == '1' ? "#018ad8a8" : ""
+                        btn.textContent = (i < 3 ? "小" : "大") + "核" + (i + 1)
+                        btn.onclick = async () => {
+                            await cpuCoreToggle(i, enabled == '1' ? false : true)
+                            btn.style.backgroundColor = enabled ? "" : "#018ad8a8"
+                            enabled = !enabled
+                        }
+                        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(btn)
+                    } else {
+                        throw ''
+                    }
+                } catch {
+                    createToast(`查询核心${i}失败`)
+                }
+            }
+        }, 300);
+    })()
+</script>

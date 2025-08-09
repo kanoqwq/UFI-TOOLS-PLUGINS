@@ -1,0 +1,14 @@
+<script>
+// 自定义快捷AT指令
+(() => {
+  const atBtnsDiv = document.querySelector('#ATModal .modal div:nth-child(5) div:nth-child(2) div div')
+  const btn = document.createElement('button')
+  btn.style.margin = '6px 6px 0 0'
+  btn.classList.add('btn')
+  btn.textContent = "AT指令名"
+  btn.onclick = (e) => {
+    disableButtonWhenExecuteFunc(e, () => handleAT('你的AT指令（比如：AT+CGMR）'))
+  }
+  atBtnsDiv.appendChild(btn)
+})()
+</script>

@@ -1,0 +1,30 @@
+<script>
+(async()=>{
+const checkAdvanceFunc = async () => {
+    const res = await runShellWithRoot('whoami')
+    if (res.content) {
+        if (res.content.includes('root')) {
+            return true
+        }
+    }
+    return false
+}
+const refreshBtn_kano = document.createElement('button')
+refreshBtn_kano.textContent = "热重启(不掉电)";
+let c = 0
+let timer = null
+refreshBtn_kano.onclick = async()=>{
+    if (!await checkAdvanceFunc()) {
+        createToast("请先启用高级功能",'red');
+        return;
+    }
+    c++
+    timer && clearTimeout(timer)
+    timer = setTimeout(()=>c=0,3000)
+    if(c<2)return createToast(`再点一次执行热重启 `,'');
+    await runShellWithRoot(`setprop ctl.restart zygote`)
+    createToast(`成功! `,'');
+}
+collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>

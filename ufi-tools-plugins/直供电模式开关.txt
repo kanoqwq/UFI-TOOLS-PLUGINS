@@ -1,0 +1,69 @@
+<script>
+    (async () => {
+        const checkAdvanceFunc = async () => {
+            const res = await runShellWithRoot('whoami')
+            if (res.content) {
+                if (res.content.includes('root')) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        const toggleCharge = async (flag) => {
+            if (!checkAdvanceFunc()) {
+                return createToast("没有开启高级功能，无法使用！")
+            }
+            await runShellWithRoot(`
+                echo ${flag ? "1" : "0"} > /sys/class/power_supply/interface/battery_charging_enabled
+                echo ${flag ? "1" : "0"} > /sys/class/zte_power_supply/zte_battery/battery_charging_enabled
+                echo ${flag ? "1" : "0"} > /sys/class/power_supply/battery/battery_charging_enabled
+            `)
+        }
+
+        const btn = document.createElement('button')
+        btn.textContent = "直供电模式"
+        btn.onclick = async (e) => {
+            const target = e.target
+            const disabled = target.dataset.enable == "1" ? false : true
+            await toggleCharge(!disabled)
+            target.dataset.enable = disabled ? "1" : "0"
+            target.style.background = disabled ? "var(--dark-btn-color-active)" : ""
+            createToast("修改成功！")
+        }
+
+        document.querySelector('.actions-buttons').appendChild(btn)
+
+        let timer = null
+        let counter = 0
+        timer = setInterval(async () => {
+            counter++
+            if (counter >= 6) {
+                clearInterval(timer)
+            }
+            try {
+                if (await checkAdvanceFunc()) {
+                    let res = await runShellWithRoot(`
+            timeout 2s  awk \'{print}\' /sys/class/power_supply/interface/battery_charging_enabled
+            timeout 2s  awk \'{print}\' /sys/class/zte_power_supply/zte_battery/battery_charging_enabled
+            timeout 2s  awk \'{print}\' /sys/class/power_supply/battery/battery_charging_enabled
+            `)
+
+                    if (res.content.includes("0")) {
+                        btn.dataset.enable = "1"
+                        btn.style.background = "var(--dark-btn-color-active)"
+                    } else {
+                        btn.dataset.enable = "0"
+                        btn.style.background = ""
+                    }
+                    clearInterval(timer)
+                } else {
+                    clearInterval(timer)
+                }
+            } catch {
+
+            }
+        }, 2000);
+
+    })()
+</script>

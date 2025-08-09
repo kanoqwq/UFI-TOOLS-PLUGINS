@@ -1,0 +1,33 @@
+<script>
+    (async () => {
+        const checkAdvanceFunc = async () => {
+            const res = await runShellWithRoot('whoami')
+            if (res.content) {
+                if (res.content.includes('root')) {
+                    return true
+                }
+            }
+            return false
+        }
+        const refreshBtn_kano = document.createElement('button')
+        refreshBtn_kano.textContent = "恢复系统更新";
+        refreshBtn_kano.onclick = async () => {
+            if (!await checkAdvanceFunc()) {
+                createToast("请先启用高级功能", 'red');
+                return;
+            }
+	    createToast(`恢复中，请稍等...`, '');
+            let res = await runShellWithRoot(`
+  pm enable com.zte.zdm
+  cmd package install-existing cn.zte.aftersale
+  cmd package install-existing com.zte.zdm
+  cmd package install-existing com.zte.zdmdaemon
+  cmd package install-existing com.zte.zdmdaemon.install
+  cmd package install-existing com.zte.analytics
+  cmd package install-existing com.zte.neopush
+`)
+            createToast(`系统更新已恢复！`, '');
+        }
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+    })()
+</script>

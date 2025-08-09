@@ -1,0 +1,155 @@
+<script>
+    (async () => {
+        let cardNumber = '88888'; // 你的卡号
+        const customTitle = ''; // 可自定义的右上角文本，按需修改
+        const cacheDuration = 60; // 缓存时间（秒）
+        const cacheKey = 'traffic_card_cache';
+        const cacheTimeKey = 'traffic_card_cache_time';
+        const now = Math.floor(Date.now() / 1000);
+
+        const fetchData = async () => {
+            try {
+                const formdata = new FormData();
+                formdata.append('cardNo', cardNumber);
+                const response = await fetch("/api/proxy/--http://cmp.xinghaiwaimai.com/java/front/cmpCard/cardLogin", {
+                    method: 'POST',
+                    body: formdata
+                });
+                if (!response.ok) throw new Error('请求失败');
+                return await response.json();
+            } catch (err) {
+                console.error("请求失败：", err);
+                return null;
+            }
+        };
+
+        const showData = (data) => {
+            const card = data.data.card;
+            const usedData = card.voidUsedFlow;
+            const totalData = card.voidTotalFlow;
+            const expireDate = card.becomedueDatetime?.split('T')[0] || '未知';
+            const groupOperator = card.groupOperator || 0;
+
+            const getOperatorName = (op) => {
+                switch (op) {
+                    case 1: return '👻中国电信👻';
+                    case 2: return '👻中国联通👻';
+                    case 3: return '👻中国移动👻';
+                    default: return '未知运营商';
+                }
+            };
+            const operatorName = getOperatorName(groupOperator);
+
+            const netCard = document.querySelector('.net-card');
+            const el = document.createElement('div');
+            const el_title = document.createElement('div');
+
+            el.style.marginBottom = '0';
+            el.style.gridColumn = '1/-1';
+            el.style.marginLeft = '0px';
+            el.style.marginRight = '0px';
+            el_title.innerHTML = customTitle; // 使用自定义标题
+            el_title.style.position = 'absolute';
+            el_title.style.right = '6px';
+            el_title.style.top = '6px';
+
+            el.style.width = '200px';
+            el.classList.add('wlk', 'statusCard', 'net-card');
+            el.style.position = 'relative';
+            el.style.padding = "8px";
+            el.style.fontSize = '12px';
+            el.style.boxSizing = 'border-box';
+            el.style.height = '60px';
+
+            const progress = Math.min(Number(usedData) / Number(totalData) * 100, 100).toFixed(2);
+
+            const formatFlow = (flow) => {
+                const num = Number(flow) / 1024;
+                return num % 1 === 0 ? num.toFixed(0) : num.toFixed(2);
+            };
+            const usedFlowText = formatFlow(usedData);
+            const totalFlowText = formatFlow(totalData);
+
+            const getProgressColor = (percent) => {
+                if (percent <= 80) {
+                    const ratio = percent / 80;
+                    const r = Math.floor(255 * ratio);
+                    return `rgb(${r},255,0)`;
+                } else {
+                    const ratio = (percent - 80) / 20;
+                    const g = Math.floor(255 * (1 - ratio));
+                    return `rgb(255,${g},0)`;
+                }
+            };
+
+            const animateProgress = (element, targetProgress) => {
+                let startTime = null;
+                const duration = 1000;
+                const progressBar = element.querySelector('.progress-bar');
+                const progressText = element.querySelector('.progress-text');
+                const animate = (timestamp) => {
+                    if (!startTime) startTime = timestamp;
+                    const elapsed = timestamp - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const currentProgress = progress * targetProgress;
+                    progressBar.style.width = `${currentProgress}%`;
+                    progressBar.style.background = getProgressColor(currentProgress);
+                    progressText.textContent = `${currentProgress.toFixed(2)}%`;
+                    if (progress < 1) requestAnimationFrame(animate);
+                };
+                requestAnimationFrame(animate);
+            };
+
+            el.innerHTML = `
+          运营商: ${operatorName}
+          <div style="width:100%; background:transparent; border:1px solid #eee; border-radius:5px; margin:5px 0; height:20px; position:relative;">
+              <div class="progress-bar" style="width:0%; background:${getProgressColor(0)}; height:100%; border-radius:5px;"></div>
+              <div style="position:absolute; top:0; left:5px; line-height:20px;">${usedFlowText}GB</div>
+              <div class="progress-text" style="position:absolute; top:0; width:100%; text-align:center; line-height:20px;">0%</div>
+              <div style="position:absolute; top:0; right:5px; line-height:20px;">${totalFlowText}GB</div>
+          </div>
+          到期时间：${expireDate}`;
+
+            el.appendChild(el_title);
+            netCard?.parentElement?.appendChild(el);
+            setTimeout(() => animateProgress(el, progress), 100);
+        };
+
+        const data = await fetchData();
+        if (!data || data.code !== 1 || !data.data || !data.data.card) {
+            const netCard = document.querySelector('.net-card');
+            const el = document.createElement('div');
+            el.innerHTML = '卡信息加载失败';
+            el.style.color = 'red';
+            el.style.padding = '8px';
+            netCard?.parentElement?.appendChild(el);
+            return;
+        }
+        showData(data);
+    })();
+</script>
+<style>
+    .statusCard {
+        box-sizing: border-box
+    }
+
+    @media (max-width: 650px) {
+        .wlk {
+            margin-left: 3px !important;
+            margin-right: 3px !important;
+            height: 80px !important;
+        }
+    }
+
+    .wlk.statusCard {
+        height: 80px !important;
+    }
+
+    .cpu-card {
+        height: 60px;
+    }
+
+    .chart.statusCard {
+        height: 80px !important;
+    }
+</style>

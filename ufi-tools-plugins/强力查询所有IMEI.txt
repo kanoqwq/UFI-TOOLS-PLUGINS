@@ -1,0 +1,130 @@
+//<script>
+  (async () => {
+    const plugin_name = "kano_diag_imei"
+    const plugin_title = "强力查询所有IMEI"
+    //检查高级功能是否开启
+    const checkRoot = async () => {
+      try {
+        const res = await runShellWithRoot('whoami');
+        return res.success && res.content.includes('root');
+      } catch {
+        return false;
+      }
+    };
+
+
+    const query = async () => {
+      if (!(await checkRoot())) {
+        createToast("没有开启高级功能，无法使用！", "red");
+        return false;
+      }
+
+      createToast("查询中,请稍后...", "pink", 5000)
+
+      const res = await runShellWithRoot(`#!/system/bin/sh
+
+DIAG_DEV="/dev/sdiag_nr"
+REQ_BIN="/data/local/tmp/diag_req.bin"
+RESP_BIN="/data/local/tmp/diag_resp.bin"
+IMEI_1_REQ="7E000000000A005E8100007E"
+IMEI_2_REQ="7E000000000A005E8200007E"
+IMEI_3_REQ="7E000000000A005E9000007E"
+query(){
+	REQ_HEX=$1
+	rm -f $REQ_BIN
+	rm -f $RESP_BIN
+	
+	echo "$REQ_HEX" | xxd -r -p > "$REQ_BIN"
+	rm -f "$RESP_BIN"
+	
+	# 杀掉占用
+	if command -v lsof >/dev/null 2>&1; then
+	  for pid in $(lsof "$DIAG_DEV" 2>/dev/null | awk 'NR>1 {print $2}'); do
+	    kill -9 "$pid" 2>/dev/null
+	  done
+	fi
+	
+	timeout 0.5 cat "$DIAG_DEV" > "$RESP_BIN" &
+	READ_PID=$!
+	
+	sleep 0.1
+	cat "$REQ_BIN" > "$DIAG_DEV"
+	
+	wait $READ_PID
+	
+	size=$(stat -c %s "$RESP_BIN" 2>/dev/null || echo 0)
+	if [ "$size" -eq 0 ]; then
+	  exit 1
+	fi
+	
+	HEX_CONTENT=$(xxd -p "$RESP_BIN" | tr -d '\n')
+	
+	POS=$(echo "$HEX_CONTENT" | grep -bo "74005e01" | head -n1 | cut -d: -f1)
+	if [ -z "$POS" ]; then
+		echo "未找到IMEI$2特征"
+		exit 1
+	fi
+	
+	DATA_AFTER_MARKER=\${HEX_CONTENT:$((POS+8))}
+	
+	FOUND_DATA=""
+	for i in $(seq 0 2 $((\${#DATA_AFTER_MARKER}-32))); do
+	CHUNK=\${DATA_AFTER_MARKER:$i:16}
+	
+	FIRST_BYTE=\${CHUNK:0:2}
+	if [ "$FIRST_BYTE" != "00" ]; then
+	 FOUND_DATA=$CHUNK
+	 break
+	fi
+	done
+	
+	if [ -z "$FOUND_DATA" ]; then
+    echo "未找到IMEI$2数据"
+    exit 1
+	fi
+	
+	imei=""
+	
+	i=0
+	while [ $i -lt 16 ]; do
+	byte_index=$((i / 2))
+	pos=$((byte_index * 2 + 1))
+	high_nibble=$(echo "$FOUND_DATA" | cut -c $pos)
+	low_nibble=$(echo "$FOUND_DATA" | cut -c $((pos+1)))
+	if [ $((i % 2)) -eq 0 ]; then
+	 imei="$imei$low_nibble"
+	else
+	 imei="$imei$high_nibble"
+	fi
+	i=$((i + 1))
+	done
+	imei=$(echo "$imei" | sed 's/^a//')
+	imei=$(echo "$imei" | cut -c1-15)
+	echo "IMEI$2: $imei"
+}
+
+query "$IMEI_1_REQ" 1
+query "$IMEI_2_REQ" 2
+query "$IMEI_3_REQ" 3
+
+rm -f $REQ_BIN
+rm -f $RESP_BIN
+
+`)
+      createToast(`
+        <div style="pointer-events:all"><span style="font-weight:bolder" onclick="copyText(event)">${res.content.replaceAll('\n', "<br>")}</span></div>
+        `, "", 10000)
+    }
+
+    const btn = document.createElement('button')
+    btn.textContent = plugin_title
+    let disabled = false
+    btn.onclick = async (e) => {
+      if (disabled) { return createToast("请勿频繁操作", 'red') }
+      disabled = true
+      await query()
+      disabled = false
+    }
+    document.querySelector('.actions-buttons').appendChild(btn)
+  })();
+//</script>

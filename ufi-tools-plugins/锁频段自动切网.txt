@@ -1,0 +1,49 @@
+<script>
+    (() => {
+        const changeNetwork = async (val) => {
+            const value = val.trim()
+            try {
+                const cookie = await login()
+                if (!cookie) {
+                    createToast(t('login_failed_check_pwd'), 'red')
+                    return null
+                }
+                let res = await (await postData(cookie, {
+                    goformId: 'SET_BEARER_PREFERENCE',
+                    BearerPreference: value.trim()
+                })).json()
+                if (res.result != 'success') {
+                    createToast(t('toast_oprate_failed'), 'red')
+                }
+            } catch (e) {
+                // createToast(e.message)
+            }
+        }
+
+        //监听锁频段按钮点击
+        const btn = document.querySelector('#bandsForm button[type="submit"]')
+        if (btn) {
+            btn.addEventListener('click', () => {
+                setTimeout(async () => {
+                    createToast("正在自动切换网络...",8000)
+                    const netType = document.querySelector('#NET_TYPE')
+                    if (netType) {
+                        const options = document.querySelectorAll('#NET_TYPE option')
+                        const curValue = netType.value
+                        //切到不同网络
+                        if (options.length) {
+                            const net = Array.from(options).find(el => el.value != curValue)
+                            if (net) {
+                                //切网
+                                await changeNetwork(net.value)
+                                //切回来
+                                await changeNetwork(curValue)
+                                createToast('切换成功!')
+                            }
+                        }
+                    }
+                }, 1000);
+            })
+        }
+    })()
+</script>

@@ -1,0 +1,266 @@
+<script>
+    (async () => {
+	window.net_limit_boot = true	
+        //限速脚本
+        const LIMIT_SCRIPT_CONTENT = `#!/system/bin/sh
+IFACE="br0"
+TC="tc"
+output() {
+  echo "$1"
+}
+add_global_limit() {
+  mbit="$1"
+  if [ -z "$mbit" ] || ! echo "$mbit" | grep -qE '^[0-9]+$'; then
+    output "false,Invalid limit value"
+    return
+  fi
+  $TC qdisc del dev "$IFACE" root 2>/dev/null
+  if ! $TC qdisc add dev "$IFACE" root handle 1: htb default 10; then
+    output "false,Failed to add root qdisc"
+    return
+  fi
+  if ! $TC class add dev "$IFACE" parent 1: classid 1:1 htb rate "\${mbit}mbit" ceil "\${mbit}mbit"; then
+    output "false,Failed to add parent class"
+    return
+  fi
+  $TC class add dev "$IFACE" parent 1:1 classid 1:9999 htb rate 10000mbit ceil 10000mbit 2>/dev/null
+  if ! $TC class add dev "$IFACE" parent 1:1 classid 1:10 htb rate "\${mbit}mbit" ceil "\${mbit}mbit"; then
+    output "false,Failed to add limit class"
+    return
+  fi
+  output "true,\${mbit}"
+}
+show_global_limit() {
+  LIMIT_LINE=$($TC class show dev "$IFACE" | grep "1:10")
+  VALUE=$(echo "$LIMIT_LINE" | awk '{
+    for(i=1;i<=NF;i++) {
+      if($i=="rate") {
+        unit=$(i+1)
+        gsub(/[^0-9]/, "", unit)
+        val=unit
+        if($(i+1) ~ /Gbit/) { val = val * 1000 }
+        print val
+        exit
+      }
+    }
+  }')
+  if [ -n "$VALUE" ]; then
+    output "true,\${VALUE}"
+  else
+    output "false,0"
+  fi
+}
+release_global_limit() {
+  $TC qdisc del dev "$IFACE" root 2>/dev/null
+  output "true,released"
+}
+case "$1" in
+  --limit)
+    if [ "$#" -eq 2 ]; then
+      add_global_limit "$2"
+    elif [ "$#" -eq 1 ]; then
+      show_global_limit
+    else
+      output "false,Invalid usage of --limit"
+    fi
+    ;;
+  --release)
+    release_global_limit
+    ;;
+  *)
+    output "false,Unknown command"
+    ;;
+esac`
+
+        const html = `
+<div class="title">网络限速器</div>
+<div class="content" style="max-height: 90%;overflow-y: scroll; padding-top: 10px; width: 66vw; max-width: 400px;">
+    <div style="margin: 10px 0">
+        <span>限速值(Mbps)：</span><input class="speed" style="padding:6px;margin: 6px 0;" type="number" max="9999" placeholder="限速Mbps"></input>
+    </div>
+    <div style="margin: 10px 0">
+        <span>当前限速：</span><span class="cr_limit"></span>
+    </div>
+    <div class="sw">
+    </div>
+    <div style="margin:10px 0">
+        <button onclick="submit_net_settings(true)">限速</button>
+        <button onclick="submit_net_settings()" >取消限速</button>
+    </div>
+
+</div>
+<div class="btn" style="text-align: right;">
+    <button type="button" onclick="closeModal('#netLimitModal')" data-i18n="close_btn">关闭</button>
+</div>
+`
+
+        //检查高级功能是否开启
+        const checkRoot = async () => {
+            try {
+                const res = await runShellWithRoot('whoami');
+                return res.success && res.content.includes('root');
+            } catch {
+                return false;
+            }
+        };
+
+        //上传脚本文件，移动到机内目标目录
+        const uploadFile = async (filename, content, destPath) => {
+            try {
+                const file = new File([content], filename, { type: "text/plain" });
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const uploadRes = await (await fetch(`${KANO_baseURL}/upload_img`, {
+                    method: "POST",
+                    headers: common_headers,
+                    body: formData,
+                })).json();
+
+                if (uploadRes.url) {
+                    const tempPath = `/data/data/com.minikano.f50_sms/files${uploadRes.url}`;
+                    const moveRes = await runShellWithRoot(`mv ${tempPath} ${destPath}`);
+                    if (moveRes.success) {
+                        return true;
+                    } else { throw new Error(`移动文件失败: ${moveRes.content}`); }
+                } else { return false; }
+            } catch (e) {
+                return false;
+            }
+        };
+
+        const cancelSpeedLimit = async () => {
+            try {
+                let res = await runShellWithRoot(`sh /sdcard/kano_net_limiter.sh --release`)
+                return res.success
+            } catch {
+                return false
+            }
+        }
+
+        const getSpeedLimit = async () => {
+            try {
+                const res = await runShellWithRoot(`sh /sdcard/kano_net_limiter.sh --limit`)
+                let parse = res.content.replaceAll("\n", '').split(',')
+                if (parse.length < 2) {
+                    return null
+                }
+                return {
+                    ok: parse[0] == "true",
+                    msg: parse[1]
+                }
+            } catch {
+                return null
+            }
+        }
+
+        const renderCurrentLimit = async () => {
+            const el = document.querySelector("#netLimitModal .cr_limit")
+            if (!el) return
+            const res = await getSpeedLimit()
+            if (!res.ok) {
+                el.innerHTML = "没有限速"
+            } else {
+                el.innerHTML = res.msg + ' Mbps'
+            }
+
+        }
+
+        const setSpeedLimit = async (speed = 10000) => {
+            try {
+                //执行限速
+                let res = await runShellWithRoot(`sh /sdcard/kano_net_limiter.sh --limit ${speed}`)
+                return res.success
+            } catch {
+                return false
+            }
+        }
+
+        const saveSpeedLimitToBoot = async (speed = 10000) => {
+            try {
+                //设置为开机脚本（先删除后添加）
+                const res = await runShellWithRoot(`
+sed -i '/kano_net_limiter/d' /sdcard/ufi_tools_boot.sh
+grep -qxF 'sh /sdcard/kano_net_limiter.sh --limit ${speed}' /sdcard/ufi_tools_boot.sh || echo 'sh /sdcard/kano_net_limiter.sh --limit ${speed}' >> /sdcard/ufi_tools_boot.sh
+`)
+                return res.success
+            } catch {
+                return false
+            }
+        }
+
+        const removeSpeedLimitToBoot = async () => {
+            try {
+                //设置为开机脚本（先删除后添加）
+                const res = await runShellWithRoot(`sed -i '/kano_net_limiter/d' /sdcard/ufi_tools_boot.sh`)
+                return res.success
+            } catch {
+                return false
+            }
+        }
+
+        const submit_net_settings = async (enable = false) => {
+            if(!await checkRoot()){
+                return createToast("没有开启高级功能，无法使用", 'red')
+            }
+            const value = document.querySelector("#netLimitModal .speed")?.value
+            const speed = value
+            if ((!speed || speed.trim() == '') && enable != false) {
+                return createToast("请输入限速值", 'red')
+            }
+            if (!enable) {
+                //取消限速
+                if (await cancelSpeedLimit()) {
+                    if (window.net_limit_boot) await removeSpeedLimitToBoot() ? createToast("已清除开机脚本!") : createToast("清除开机脚本失败！", 'red')
+                    createToast("已取消限速")
+                }
+                else {
+                    createToast("取消限速失败")
+                }
+                await renderCurrentLimit()
+                return
+            }
+            //上传文件
+            if (!await uploadFile("kano_net_limiter.sh", LIMIT_SCRIPT_CONTENT, "/sdcard/kano_net_limiter.sh")) return createToast("保存脚本失败！", 'red')
+            if (!await setSpeedLimit(speed)) { return createToast("设置限速失败！", 'red') }
+            else {
+                createToast("设置限速成功！")
+                if (window.net_limit_boot) await saveSpeedLimitToBoot(speed) ? createToast("已设置开机自启动!") : createToast("设置开机自启动失败！", 'red')
+                await renderCurrentLimit()
+            }
+        }
+
+        window.submit_net_settings = submit_net_settings
+
+        const el = document.createElement('div')
+        el.id = "netLimitModal"
+        el.classList.add('modal')
+        el.style.opacity = "1"
+        el.style.display = "none"
+        el.innerHTML = html
+        document.querySelector('.container').appendChild(el)
+
+        const btn = document.createElement('button')
+        btn.textContent = "网络限速器"
+        btn.onclick = async (e) => {
+            showModal("#netLimitModal")
+            renderCurrentLimit()
+        }
+        document.querySelector('.actions-buttons').appendChild(btn)
+
+        let sw = document.querySelector('#netLimitModal .sw')
+        if (sw) {
+            sw.appendChild(
+                createSwitch({
+                    text: '开机自启',
+                    value: true,
+                    className: '',
+                    onChange: (checked) => {
+                        window.net_limit_boot = checked
+                    }
+                })
+            )
+        }
+
+    })();
+</script>

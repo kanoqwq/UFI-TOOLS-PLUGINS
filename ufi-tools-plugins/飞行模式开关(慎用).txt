@@ -1,0 +1,69 @@
+<script>
+    (async () => {
+        const checkAdvanceFunc = async () => {
+            const res = await runShellWithRoot('whoami')
+            if (res.content) {
+                if (res.content.includes('root')) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        const toggle = async (flag) => {
+            if (!checkAdvanceFunc()) {
+                return createToast("没有开启高级功能，无法使用！")
+            }
+            await runShellWithRoot(`
+            settings put global airplane_mode_on ${flag ? 1 : 0}
+            setprop persist.radio.airplane_mode_on ${flag ? 1 : 0}
+            am broadcast -a android.intent.action.AIRPLANE_MODE --ez state ${flag}
+            `, 3000)
+        }
+
+        const btn = document.createElement('button')
+        btn.textContent = "飞行模式"
+        btn.onclick = async (e) => {
+            createToast("修改中...")
+            const target = e.target
+            const disabled = target.dataset.enable == "1" ? false : true
+            await toggle(disabled)
+            target.dataset.enable = disabled ? "1" : "0"
+            target.style.background = disabled ? "var(--dark-btn-color-active)" : ""
+            createToast("修改成功！")
+        }
+
+        document.querySelector('.actions-buttons').appendChild(btn)
+
+
+        let timer = null
+        let counter = 0
+        timer = setInterval(async () => {
+            counter++
+            if (counter >= 6) {
+                clearInterval(timer)
+            }
+            try {
+                if (await checkAdvanceFunc()) {
+                    let res = await runShellWithRoot(`
+            timeout 2s  settings get global airplane_mode_on
+            timeout 2s  getprop persist.radio.airplane_mode_on
+            `, 3000)
+
+                    if (res.content.includes("1")) {
+                        btn.dataset.enable = "1"
+                        btn.style.background = "var(--dark-btn-color-active)"
+                    } else {
+                        btn.dataset.enable = "0"
+                        btn.style.background = ""
+                    }
+                    clearInterval(timer)
+                } else {
+                    clearInterval(timer)
+                }
+            } catch {
+
+            }
+        }, 2000);
+    })()
+</script>

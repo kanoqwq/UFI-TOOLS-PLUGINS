@@ -1,0 +1,263 @@
+<!-- 自定义头部之添加自定义网站.txt -->
+<script>
+(()=>{
+const ttyd = document.querySelector('#TTYD')
+ttyd.insertAdjacentHTML("beforebegin",`
+<div id="IFRAME_KANO" style="width: 100%; margin-top: 10px;">
+    <div class="title" style="margin: 6px 0 ;">
+        <strong>外链网站</strong>
+        <div style="display: inline-block;" id="collapse_iframe_btn"></div>
+    </div>
+    <div class="collapse" id="collapse_iframe" data-name="close" style="height: 0px; overflow: hidden;">
+        <div class="collapse_box">
+            <ul class="deviceList">
+<li style="padding:10px">
+        <iframe src="https://api.mtyqx.cn/api/random.php" style="border:none;padding:0;margin:0;width:100%;height:400px;border-radius: 10px;overflow: hidden;opacity: .6;"></iframe>
+</li> </ul>
+        </div>
+    </div>
+</div>
+`)
+collapseGen("#collapse_iframe_btn","#collapse_iframe",(e)=>{
+    console.log(e)
+})})()
+</script>
+
+
+<!-- 扩展插件分类（请顶置该插件).txt -->
+<script>
+(function(){
+    const toolBox = document.createElement('div');
+    toolBox.innerHTML = `
+        <div class="title" style="margin:6px 0;">
+            <strong>扩展插件</strong>
+            <div style="display:inline-block;" id="collapse_toolbox_btn"></div>
+        </div>
+        <div class="collapse" id="collapse_toolbox" data-name="close" style="transition:all 0.1s;height:0;overflow:hidden;">
+            <div class="collapse_box" id="toolbox_buttons" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+    `;
+    
+    const menuSection = document.querySelector('.collapse_box') || document.body;
+    menuSection.appendChild(toolBox);
+    
+    if (typeof collapseGen === 'function') {
+        collapseGen("#collapse_toolbox_btn", "#collapse_toolbox",'collapse_toolbox');
+    }
+
+    const originalAppendChild = HTMLElement.prototype.appendChild;
+    HTMLElement.prototype.appendChild = function(element) {
+        if (this === collapseBtn_menu?.nextElementSibling?.querySelector('.collapse_box') && 
+            element.tagName === 'BUTTON') {
+            return document.getElementById('toolbox_buttons').appendChild(element);
+        }
+        return originalAppendChild.call(this, element);
+    };
+})();
+</script>
+
+
+<script>
+(()=>{
+const refreshBtn_kano = document.createElement('button')
+const bg_kano = document.querySelector('#BG')
+const img_kano = localStorage.getItem('backgroundUrl') || "";
+refreshBtn_kano.textContent = "刷新图片"
+refreshBtn_kano.onclick = ()=>{
+    bg_kano.style.backgroundImage = 'url("/123")'
+    createToast('壁纸已刷新！')
+    setTimeout(()=>{bg_kano.style.backgroundImage = `url("${img_kano}?t=${Date.now()}")`},100)
+}
+collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>
+
+
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button')
+    const bg_kano = document.querySelector('#BG')
+    const img_kano = localStorage.getItem('backgroundUrl') || "";
+    refreshBtn_kano.textContent = "当前分区"
+    refreshBtn_kano.onclick = async() => {
+        const res = await runShellWithRoot("getprop ro.boot.slot_suffix")
+        createToast("你当前的分区是："+res.content.replaceAll('_',"").toUpperCase(),'')
+    }
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>
+
+
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button');
+    refreshBtn_kano.textContent = "Ping 百度";
+    
+    refreshBtn_kano.onclick = async () => {
+        try {
+            const res = await runShellWithRoot("ping -c 3 baidu.com");
+            const lines = res.content.split('\n');
+            
+            let formattedOutput = lines.map(line => {
+                if (line.includes("time=")) {
+                    return `<div style="color: #4CAF50; margin: 1px 0; text-align: left;">${line}</div>`;
+                } else if (line.includes("packets") || line.includes("round-trip")) {
+                    return `<div style="color: #FF9800; margin: 1px 0; text-align: left; font-weight: bold;">${line}</div>`;
+                } else {
+                    return `<div style="margin: 1px 0; text-align: left;">${line}</div>`;
+                }
+            }).join('');
+
+            createToast(
+                `<div style="max-width:90vw; min-width:300px; font-family:monospace;">
+                    <div style="text-align:center; font-weight:bold; margin:0 0 2px 0;">Ping 百度结果</div>
+                    ${formattedOutput}
+                </div>`,
+                '',
+                10000
+            );
+        } catch (error) {
+            createToast("Ping失败", "error", 3000);
+        }
+    };
+    
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano);
+})();
+</script>   
+
+
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button')
+    refreshBtn_kano.classList.add('btn')
+    refreshBtn_kano.textContent = "100秒压测"
+    let status = false
+
+    const start = async () => {
+        if (!status) {
+            status = true
+            refreshBtn_kano.textContent = "停止压测"
+            createToast('开始100秒的CPU压测!!!')
+
+            try {
+                const hasDownload = await runShellWithRoot('ls /data/data/com.minikano.f50_sms/files/')
+                if (hasDownload && hasDownload.content && (hasDownload.content?.indexOf("kano_stress") == -1)) {
+                    await runShellWithRoot('/data/data/com.minikano.f50_sms/files/curl -L "https://pan.kanokano.cn/d/UFI-TOOLS/stress" -o /data/data/com.minikano.f50_sms/files/kano_stress')
+                }
+                await runShellWithRoot('chmod 777 /data/data/com.minikano.f50_sms/files/kano_stress')
+                await runShellWithRoot('/data/data/com.minikano.f50_sms/files/kano_stress -q -c 8 -t 100')
+            } catch { }
+        } else {
+            createToast('压测停止')
+            refreshBtn_kano.textContent = "100秒压测";
+            try {
+                await runShellWithRoot('pkill kano_stress')
+            } catch { }
+            status = false
+        }
+    }
+
+    refreshBtn_kano.onclick = start
+
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>   
+
+
+<script>
+    (() => {
+        const refreshBtn_kano = document.createElement('button')
+        const bg_kano = document.querySelector('#BG')
+        const img_kano = localStorage.getItem('backgroundUrl') || "";
+        refreshBtn_kano.textContent = "提取BOOT"
+        refreshBtn_kano.onclick = async () => {
+            try {
+                const res = await runShellWithRoot("getprop ro.boot.slot_suffix")
+                let ab = res.content.includes('a') ? "A":"B"
+                createToast(`你当前的分区是：${ab}`, '')
+
+                createToast(`正在下载：boot_${ab}.img`, '')
+                await runShellWithRoot('mkdir /data/data/com.minikano.f50_sms/files/uploads')
+                const outFile = `boot_a.img`
+                await runShellWithRoot(`rm -f /data/data/com.minikano.f50_sms/files/uploads/${outFile}`)
+                const command = `dd if=/dev/block/by-name/boot_${ab.toLowerCase()} of=/data/data/com.minikano.f50_sms/files/uploads/${outFile}`
+                let result = await runShellWithRoot(command)
+                //开始下载
+                const outLink = `/api/uploads/${outFile}`
+                const a = document.createElement('a')
+                a.href = outLink
+                a.download = outFile
+                a.click()
+            } catch {
+                createToast(`执行错误`, 'red')
+            }
+
+        }
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+    })()
+</script>
+
+
+<script>
+(() => {
+    const toggleBoostBtn = document.createElement('button');
+    let isBoostEnabled = false;
+
+    const initCpuState = async () => {
+        try {
+            const verifyRes = await runShellWithRoot("cat /sys/devices/system/cpu/cpu[0-3]/cpufreq/scaling_governor | head -n1");
+            isBoostEnabled = (verifyRes.content.trim() === "performance");
+            toggleBoostBtn.textContent = isBoostEnabled ? "关闭小核狂暴" : "开启小核狂暴";
+        } catch (error) {
+            toggleBoostBtn.textContent = "开启小核狂暴";
+        }
+    };
+
+    const setCpuGovernor = async (mode) => {
+        const commands = [
+            `echo ${mode} > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`,
+            `echo ${mode} > /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor`,
+            `echo ${mode} > /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor`,
+            `echo ${mode} > /sys/devices/system/cpu/cpu3/cpufreq/scaling_governor`
+        ];
+
+        for (const cmd of commands) {
+            await runShellWithRoot(cmd);
+        }
+
+        const verifyRes = await runShellWithRoot("cat /sys/devices/system/cpu/cpu[0-3]/cpufreq/scaling_governor");
+        return verifyRes.content.split('\n').filter(Boolean);
+    };
+
+    toggleBoostBtn.onclick = async () => {
+        try {
+            const newMode = isBoostEnabled ? "schedutil" : "performance";
+            const cpuGovernors = await setCpuGovernor(newMode);
+
+            isBoostEnabled = !isBoostEnabled;
+            toggleBoostBtn.textContent = isBoostEnabled ? "关闭小核狂暴" : "开启小核狂暴";
+
+            createToast(
+                `<div style="max-width:90vw; min-width:300px;">
+                    <div style="text-align:center; font-weight:bold; margin-bottom:8px;">
+                        ${isBoostEnabled ? "小核狂暴已开启" : "小核狂暴已关闭"}
+                    </div>
+                    <div style="color: ${isBoostEnabled ? '#4CAF50' : '#FF9800'}; margin:5px 0; font-weight:bold;">
+                        当前模式: <span style="font-family:monospace;">${newMode}</span>
+                    </div>
+                    <div style="font-family:monospace; margin-top:5px;">
+                        ${cpuGovernors.map((gov, i) => `CPU${i}: ${gov}`).join('<br>')}
+                    </div>
+                </div>`,
+                '',
+                5000
+            );
+        } catch (error) {
+            createToast("操作失败: " + error.message, "error", 3000);
+        }
+    };
+
+    initCpuState();
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(toggleBoostBtn);
+})();
+</script>

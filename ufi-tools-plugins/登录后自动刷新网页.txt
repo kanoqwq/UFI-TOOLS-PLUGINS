@@ -1,0 +1,30 @@
+<script>
+    (async () => {
+        //监测是否已经登录
+        const checkIsLogin = async () => {
+            try {
+                const res = await fetchWithTimeout(`${KANO_baseURL}/adb_alive`)
+                if (res.status == 200) {
+                    //已经登录
+                    return true
+                }
+                throw new Error("没有登录")
+            } catch {
+                return false
+            }
+        }
+
+        const res = await checkIsLogin()
+        let timer = null
+        if (!res) {
+            //没有登录则开启定时器等待登录
+            timer && clearInterval(timer)
+            setInterval(async () => {
+                if (await checkIsLogin()){
+                    clearInterval(timer)
+                    location.reload()
+                }
+            }, 800);
+        }
+    })()
+</script>

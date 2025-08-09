@@ -1,0 +1,96 @@
+<script>
+    (async () => {
+        let cardNumber = '卡号'
+        try {
+            const data = new URLSearchParams();
+            data.append('card', cardNumber);
+
+            const response = await fetch("/api/proxy/--http://xjxj.iot889.cn/app/card/login", {
+                method: 'POST',
+                body: data,
+                headers: {
+                    Host: "xjxj.iot889.cn",
+                    'User-Agent': "...",
+                    "content-type": "application/x-www-form-urlencoded",
+                    "Origin": "http://xjxj.iot889.cn",
+                    "Referer": "http://xjxj.iot889.cn/wap/"
+                },
+                credentials: 'omit'
+            });
+            const response1 = await fetch("/api/proxy/--http://xjxj.iot889.cn/app/client/card/get", {
+                method: 'GET',
+                headers: {
+                    Host: "xjxj.iot889.cn",
+                    'User-Agent': "...",
+                    "content-type": "application/json;charset=UTF-8",
+                    "Referer": "http://xjxj.iot889.cn/wap/pages/home/home",
+                    "Kano-Cookie": response.headers.get('kano-setck').split(';')[0]
+                },
+                credentials: 'omit'
+            });
+
+
+            if (!response.ok) throw new Error('请求失败');
+            if (!response1.ok) throw new Error('请求失败');
+            //处理返回体
+            let res = (await response.json())?.data
+            let res1 = (await response1.json())?.data
+
+            let opr = "未知"
+            if (res.showName.includes('移动')) opr = "小🐳移动"
+            if (res.showName.includes('联通')) opr = "小🐳联通"
+            if (res.showName.includes('电信')) opr = "小🐳电信"
+
+            const card = {
+                voidUsedFlow: res1.realUsed,
+                voidTotalFlow: res1.realUsed + res1.free,
+                becomedueDatetime: res1.expirationTime,
+                groupOperator: opr
+            };
+
+            const usedData = card?.voidUsedFlow
+            const totalData = card?.voidTotalFlow
+            const op = card?.groupOperator
+            const expireDate = card?.becomedueDatetime
+            const netCard = document.querySelector('.net-card');
+            const el = document.createElement('div')
+            const el_title = document.createElement('div')
+            el.style.marginBottom = '0'
+            el.style.gridColumn = '1/-1'
+            el.style.marginLeft = '0px'
+            el.style.marginRight = '0px'
+            el_title.style.position = 'absolute'
+            el_title.style.right = '6px'
+            el_title.style.top = '6px'
+            el.style.width = '200px'
+            el.classList.add('wlk')
+            el.classList.add('statusCard')
+            el.classList.add('net-card')
+            el.style.position = 'relative'
+            el.style.padding = "6px 8px 8px 8px"
+            el.style.fontSize = '12px'
+            el.style.boxSizing = 'border-box'
+            el.style.height = '60px'
+            el.innerHTML = `
+    运营商: ${op}<br/>
+    ${(Number(usedData) / 1024).toFixed(2)}GB/${(Number(totalData) / 1024).toFixed(2)}GB<br/>
+    到期时间：${expireDate.split(' ')[0]}`
+            el.appendChild(el_title)
+            netCard?.parentElement?.appendChild(el)
+        } catch {
+
+        }
+    })()
+</script>
+<style>
+    .statusCard {
+        box-sizing: border-box
+    }
+
+    @media (max-width: 650px) {
+        .wlk {
+            margin-left: 3px !important;
+            margin-right: 3px !important;
+        }
+    }
+</style>

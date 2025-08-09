@@ -1,0 +1,13 @@
+<style>
+button{
+	backdrop-filter: blur(0px);
+	-webkit-backdrop-filter: blur(0px);	
+}
+</style>
+<script>
+updateBlurSwitch({
+    target:{
+        checked:false
+    }
+})
+</script>

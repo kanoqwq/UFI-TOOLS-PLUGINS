@@ -1,0 +1,23 @@
+<script>
+(()=>{
+const ttyd = document.querySelector('#TTYD')
+ttyd.insertAdjacentHTML("beforebegin",`
+<div id="IFRAME_KANO" style="width: 100%; margin-top: 10px;">
+    <div class="title" style="margin: 6px 0 ;">
+        <strong>ALIST</strong>
+        <div style="display: inline-block;" id="collapse_iframe_btn"></div>
+    </div>
+    <div class="collapse" id="collapse_iframe" data-name="close" style="height: 0px; overflow: hidden;">
+        <div class="collapse_box">
+            <ul class="deviceList">
+<li style="padding:10px">
+        <iframe src="改成你想要的网页link" style="border:none;padding:0;margin:0;width:100%;height:400px;border-radius: 10px;overflow: hidden;opacity: .6;"></iframe>
+</li> </ul>
+        </div>
+    </div>
+</div>
+`)
+collapseGen("#collapse_iframe_btn","#collapse_iframe",(e)=>{
+    console.log(e)
+})})()
+</script>

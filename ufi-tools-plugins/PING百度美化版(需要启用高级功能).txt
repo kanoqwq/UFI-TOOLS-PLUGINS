@@ -1,0 +1,36 @@
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button');
+    refreshBtn_kano.textContent = "Ping 百度";
+    
+    refreshBtn_kano.onclick = async () => {
+        try {
+            const res = await runShellWithRoot("ping -c 3 baidu.com");
+            const lines = res.content.split('\n');
+            
+            let formattedOutput = lines.map(line => {
+                if (line.includes("time=")) {
+                    return `<div style="color: #4CAF50; margin: 1px 0; text-align: left;">${line}</div>`;
+                } else if (line.includes("packets") || line.includes("round-trip")) {
+                    return `<div style="color: #FF9800; margin: 1px 0; text-align: left; font-weight: bold;">${line}</div>`;
+                } else {
+                    return `<div style="margin: 1px 0; text-align: left;">${line}</div>`;
+                }
+            }).join('');
+
+            createToast(
+                `<div style="max-width:90vw; min-width:300px; font-family:monospace;">
+                    <div style="text-align:center; font-weight:bold; margin:0 0 2px 0;">Ping 百度结果</div>
+                    ${formattedOutput}
+                </div>`,
+                '',
+                10000
+            );
+        } catch (error) {
+            createToast("Ping失败", "error", 3000);
+        }
+    };
+    
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano);
+})();
+</script>   

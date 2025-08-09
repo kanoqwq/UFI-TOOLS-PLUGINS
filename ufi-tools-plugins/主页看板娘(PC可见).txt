@@ -1,0 +1,39 @@
+<script src="https://blog.rxzh.cc/plugins/PluginLive2d/assets/static/lib/live2d/live2d.min.js"></script>
+<script src="https://blog.rxzh.cc/plugins/PluginLive2d/assets/static/js/live2d-autoload.min.js"></script>
+<link rel="stylesheet" href="https://blog.rxzh.cc/plugins/PluginLive2d/assets/static/css/live2d.css">
+
+<script>
+window.addEventListener('load',()=>{
+        createToast("正在加载Live2D...");
+        live2d.init("https://blog.rxzh.cc/plugins/PluginLive2d/assets/static/", {
+            "loadTime" : "defer",
+            "consoleShowStatu" : true,
+            "live2dLocation" : "left",
+            "photoName" : "live2d",
+            "slots" : { },
+            "copyContent" : true,
+            "backSite" : true,
+            "backSiteTip" : "哇，你终于回来了～",
+            "selectorTips" : [ ],
+            "openConsole" : true,
+            "copyContentTip" : "你都复制了些什么呀，转载要记得加上出处哦！",
+            "openConsoleTip" : "你是想要看看我的小秘密吗？",
+            "firstOpenSite" : true,
+            "modelTexturesId" : 53,
+            "isForceUseDefaultConfig" : false,
+            "modelId" : 1,
+            "apiPath" : "https://api.zsq.im/live2d/",
+            "hitokotoApi" : "https://v1.hitokoto.cn",
+            "showHitokoto" : true,
+            "tips" : "https://blog.rxzh.cc/themes/theme-sakura/assets/live2d/tips.json"
+        })
+        clearInterval(kano)
+})
+
+</script>
+<style>
+#live2d-plugin{
+    left: unset !important;
+    right:0 !important;
+}
+</style>

@@ -1,0 +1,9 @@
+<style>
+body {
+  height: 100dvh;
+}
+ 
+html {
+  height: 100dvh;
+}
+</style>

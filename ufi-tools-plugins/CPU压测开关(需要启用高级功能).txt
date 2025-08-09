@@ -1,0 +1,36 @@
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button')
+    refreshBtn_kano.classList.add('btn')
+    refreshBtn_kano.textContent = "100秒压测"
+    let status = false
+
+    const start = async () => {
+        if (!status) {
+            status = true
+            refreshBtn_kano.textContent = "停止压测"
+            createToast('开始100秒的CPU压测!!!')
+
+            try {
+                const hasDownload = await runShellWithRoot('ls /data/data/com.minikano.f50_sms/files/')
+                if (hasDownload && hasDownload.content && (hasDownload.content?.indexOf("kano_stress") == -1)) {
+                    await runShellWithRoot('/data/data/com.minikano.f50_sms/files/curl -L "https://pan.kanokano.cn/d/UFI-TOOLS-UPDATE/plugins/stress" -o /data/data/com.minikano.f50_sms/files/kano_stress')
+                }
+                await runShellWithRoot('chmod 777 /data/data/com.minikano.f50_sms/files/kano_stress')
+                await runShellWithRoot('/data/data/com.minikano.f50_sms/files/kano_stress -q -c 8 -t 100')
+            } catch { }
+        } else {
+            createToast('压测停止')
+            refreshBtn_kano.textContent = "100秒压测";
+            try {
+                await runShellWithRoot('pkill kano_stress')
+            } catch { }
+            status = false
+        }
+    }
+
+    refreshBtn_kano.onclick = start
+
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>

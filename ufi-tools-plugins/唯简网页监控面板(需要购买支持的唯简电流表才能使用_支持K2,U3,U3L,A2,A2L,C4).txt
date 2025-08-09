@@ -1,0 +1,375 @@
+<script>
+    (async () => {
+        const plugin_name = "kano_k2_meter"
+        const plugin_title = "WITRN(唯简)面板"
+        const SH_FILE = "/data/kano_k2_meter.sh"
+        const BOOT_SH_FILE = "/sdcard/ufi_tools_boot.sh"
+
+        const checkAdvanceFunc = async () => {
+            const res = await runShellWithRoot('whoami')
+            if (res.content) {
+                if (res.content.includes('root')) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        const isInstalled = async () => {
+            const r = await runShellWithRoot(`awk '{print}' /sdcard/ufi_tools_boot.sh`)
+            if (r.content.includes(`${plugin_name}.sh`)) {
+                return true
+            }
+            return false
+        }
+
+        //检查高级功能是否开启
+        const checkRoot = async () => {
+            try {
+                const res = await runShellWithRoot('whoami');
+                return res.success && res.content.includes('root');
+            } catch {
+                return false;
+            }
+        };
+
+        const killProcessByName = async (processName) => {
+            const psResult = await runShellWithRoot(`ps -ef | grep "${processName}" | grep -v grep`);
+            const lines = psResult.content.trim().split('\n');
+
+            if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+                return {
+                    success: false,
+                    content: "未找到相关进程"
+                };
+            }
+
+            let killed = 0;
+
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[1];
+                const name = parts.slice(2).join(' ');
+                if (pid && /^\d+$/.test(pid)) {
+                    const res = await runShellWithRoot(`kill ${pid}`);
+                    killed++;
+                }
+            }
+
+            if (killed === 0) {
+                return {
+                    success: false,
+                    content: "未找到可杀死的进程"
+                };
+            } else {
+                return {
+                    success: true,
+                    content: `已杀死 ${killed} 个进程`
+                };
+            }
+        };
+
+
+        //上传脚本文件，移动到机内目标目录
+        const uploadFile = async (filename, content, destPath) => {
+            try {
+                const file = new File([content], filename, { type: "text/plain" });
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const uploadRes = await (await fetch(`${KANO_baseURL}/upload_img`, {
+                    method: "POST",
+                    headers: common_headers,
+                    body: formData,
+                })).json();
+
+                if (uploadRes.url) {
+                    const tempPath = `/data/data/com.minikano.f50_sms/files${uploadRes.url}`;
+                    const moveRes = await runShellWithRoot(`mv ${tempPath} ${destPath}`);
+                    if (moveRes.success) {
+                        return true;
+                    } else { throw new Error(`移动文件失败: ${moveRes.content}`); }
+                } else { return false; }
+            } catch (e) {
+                return false;
+            }
+        };
+
+        //卸载
+        const uninstall = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+            createToast("卸载中...")
+            let res = await killProcessByName(plugin_name)
+            createToast(res.content)
+            await runShellWithRoot(`sed -i '/${plugin_name}/d' ${BOOT_SH_FILE}`)
+            await runShellWithRoot(`rm -rf /data/${plugin_name}`)
+            await runShellWithRoot(`rm -f ${SH_FILE}`)
+            isBtn1Disabled = false
+            isBtnDisabled = false
+            return createToast("已卸载,重启生效！")
+        }
+
+        //安装
+        const install = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+
+            if (await isInstalled()) {
+                return createToast(`
+                已经安装${plugin_title}了!<br>
+                `, 'red')
+            }
+
+            createToast("下载中，可能有点慢...", '', 8000)
+            const res1 = await runShellWithRoot(`/data/data/com.minikano.f50_sms/files/curl -L "https://pan.kanokano.cn/d/UFI-TOOLS-UPDATE/plugins/kano_k2_meter.zip" -o /data/kano_k2_meter.zip`, 100 * 1000)
+            if (!res1.success) {
+                btn_enabled.disabled = false;
+                return createToast("下载依赖失败!", 'red')
+            }
+
+            createToast("解压文件并授权...")
+            const res2 = await runShellWithRoot(`
+            cd /data
+            mkdir -p /data/${plugin_name}
+            unzip  /data/${plugin_name}.zip -d /data/${plugin_name}/
+            rm -f /data/${plugin_name}.zip
+            chmod 777 /data/${plugin_name}/*
+            `)
+
+
+            const SCRIPT_CONTENT = `
+    #!/system/bin/sh
+    nohup /data/${plugin_name}/${plugin_name} >/dev/null 2>&1 &
+    `
+
+            //上传
+            if (!await uploadFile(`${plugin_name}.sh`, SCRIPT_CONTENT, SH_FILE)) {
+                return createToast("传输文件失败！", "red")
+            }
+            await runShellWithRoot(`grep -qxF 'sh /data/${plugin_name}.sh &' ${BOOT_SH_FILE} || echo 'sh /data/${plugin_name}.sh &' >> ${BOOT_SH_FILE}`)
+            await runShellWithRoot(`sh ${SH_FILE} &`)
+            createToast(`
+            已启用${plugin_title}！<br>
+            `, 'green', 7000)
+            setTimeout(() => {
+                refresh && refresh.click()
+            }, 2000);
+
+            isInstalled().then(isBootUp => {
+                if (isBootUp) {
+                    boot_on.style.background = "var(--dark-btn-color-active)"
+                } else {
+                    boot_on.style.background = ""
+                }
+            })
+        }
+
+        const btn = document.createElement('button')
+        btn.textContent = "安装" + plugin_title
+        btn.onclick = async (e) => {
+            if (!(await checkAdvanceFunc())) {
+                createToast("没有开启高级功能，无法使用！", 'red')
+                return
+            }
+            await install()
+
+        }
+
+        const btn2 = document.createElement('button')
+        btn2.textContent = "打开" + plugin_title + "页面"
+        btn2.onclick = async (e) => {
+            if (!(await checkAdvanceFunc())) {
+                createToast("没有开启高级功能，无法使用！", 'red')
+                return
+            }
+            if (!await isInstalled()) {
+                return createToast(`
+                没有安装${plugin_title}，请先安装<br>
+                `, 'red')
+            }
+            const a = document.createElement('a')
+            a.href = `http://${UFI_DATA.lan_ipaddr}:1270`
+            a.style.display = 'none'
+            a.target = "_blank"
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+        }
+        const btn3 = document.createElement('button')
+        btn3.textContent = "重启" + plugin_title
+        btn3.onclick = async (e) => {
+            if (!(await checkAdvanceFunc())) {
+                createToast("没有开启高级功能，无法使用！", 'red')
+                return
+            }
+            if (!await isInstalled()) {
+                return createToast(`
+                没有安装${plugin_title}，请先安装<br>
+                `, 'red')
+            }
+            let res = await killProcessByName(plugin_name)
+            await runShellWithRoot(`sh /data/${plugin_name}.sh &`)
+            createToast("执行成功")
+        }
+
+        const btn4 = document.createElement('button')
+        btn4.textContent = "停止" + plugin_title
+        btn4.onclick = async (e) => {
+            if (!(await checkAdvanceFunc())) {
+                createToast("没有开启高级功能，无法使用！", 'red')
+                return
+            }
+            if (!await isInstalled()) {
+                return createToast(`
+                没有安装${plugin_title}，请先安装<br>
+                `, 'red')
+            }
+            let res = await killProcessByName(plugin_name)
+            createToast("执行成功")
+        }
+
+
+        const btn1 = document.createElement('button')
+        btn1.textContent = "卸载" + plugin_title
+        let timer_close = null
+        let count_close = 0
+        btn1.onclick = async (e) => {
+            if (!(await checkAdvanceFunc())) {
+                createToast("没有开启高级功能，无法使用！", 'red')
+                return
+            }
+            if (timer_close) clearTimeout(timer_close)
+            timer_close = setTimeout(() => {
+                count_close = 0
+            }, 2000)
+            if (count_close++ < 2) {
+                return createToast("再点一次移除" + plugin_title)
+            }
+            await uninstall()
+        }
+
+        const wait = (sec = 100) => new Promise((resolve) => {
+            setTimeout(() => {
+                resolve()
+            }, sec);
+        })
+        const mmContainer = document.querySelector('.functions-container')
+        while (!UFI_DATA.lan_ipaddr) {
+            await wait()
+        }
+
+        mmContainer.insertAdjacentHTML("afterend", `
+<div id="IFRAME_KANO" style="width: 100%; margin-top: 10px;">
+    <div class="title" style="margin: 6px 0 ;">
+        <strong>${plugin_title}</strong>
+        <div style="display: inline-block;" id="collapse_wj_btn"></div>
+    </div>
+    <div class="collapse" id="collapse_wj" data-name="close" style="height: 0px; overflow: hidden;">
+        <div class="collapse_box">
+        <div id="wj_action_box" style="margin-bottom:10px;display:flex;gap:10px;flex-wrap:wrap"></div>
+            <ul class="deviceList">
+<li style="padding:10px">
+        <iframe id="wj_iframe" src="javascript:;" style="border:none;padding:0;margin:0;width:100%;height:500px;border-radius: 10px;overflow: hidden;opacity: .6;"></iframe>
+</li> </ul>
+        </div>
+    </div>
+</div>
+`)
+        const refresh = document.createElement('button')
+        refresh.classList.add('btn')
+        refresh.textContent = "刷新网页"
+        refresh.onclick = () => {
+            document.getElementById('wj_iframe').src = `http://${UFI_DATA.lan_ipaddr}:1270?t=` + Date.now();
+        }
+
+        // 检测是否开机自启
+        const checkIsBootUp = async () => {
+            const r = await runShellWithRoot(`ls /data/`)
+            let isInstall = false
+            if (r.content.includes(`${plugin_name}.sh`)) {
+                isInstall = true
+            }
+            return isInstalled() && isInstall
+        }
+
+        const boot_on = document.createElement('button')
+        boot_on.id = "wj_boot_on"
+        boot_on.classList.add('btn')
+        boot_on.textContent = "开机自启"
+        boot_on.style.background = ""
+        boot_on.addEventListener('click', async () => {
+            if (!(await checkAdvanceFunc())) {
+                createToast("没有开启高级功能，无法使用！", 'red')
+                return
+            }
+            if (!await checkIsBootUp()) {
+                return createToast(`
+                没有安装${plugin_title}，请先安装<br>
+                `, 'red')
+            }
+            const isBootUp = await isInstalled();
+            if (isBootUp) {
+                //关闭
+                await runShellWithRoot(`
+                sed -i '/kano_k2_meter.sh/d' /sdcard/ufi_tools_boot.sh
+            `)
+                boot_on.style.background = ""
+                createToast("已取消开机自启", 'green')
+            } else {
+                //开启
+                await runShellWithRoot(`grep -qxF 'sh /data/${plugin_name}.sh &' ${BOOT_SH_FILE} || echo 'sh /data/${plugin_name}.sh &' >> ${BOOT_SH_FILE}`)
+                boot_on.style.background = "var(--dark-btn-color-active)"
+                createToast("已设置开机自启", 'green')
+            }
+        })
+
+        isInstalled().then(isBootUp => {
+            if (isBootUp) {
+                boot_on.style.background = "var(--dark-btn-color-active)"
+            } else {
+                boot_on.style.background = ""
+            }
+        })
+
+        if (localStorage.getItem("#collapse_wj") == 'open') {
+            refresh.click()
+        }
+
+        const mmBox = document.querySelector('#wj_action_box')
+        mmBox.appendChild(btn)
+        mmBox.appendChild(btn1)
+        mmBox.appendChild(btn2)
+        mmBox.appendChild(btn3)
+        mmBox.appendChild(btn4)
+        mmBox.appendChild(boot_on)
+        mmBox.appendChild(refresh)
+        let colTimer = null
+        let colTimer1 = null
+        collapseGen("#collapse_wj_btn", "#collapse_wj", "#collapse_wj", (e) => {
+            isInstalled().then(isBootUp => {
+                if (isBootUp) {
+                    boot_on.style.background = "var(--dark-btn-color-active)"
+                } else {
+                    boot_on.style.background = ""
+                }
+            })
+            colTimer && clearTimeout(colTimer)
+            colTimer1 && clearTimeout(colTimer1)
+            if (e == 'open') {
+                colTimer1 = setTimeout(() => {
+                    refresh.click()
+                }, 300);
+            } else {
+                colTimer = setTimeout(() => {
+                    document.getElementById('wj_iframe').src = `javascript:;`;
+                }, 300);
+            }
+        })
+
+    })();
+</script>

@@ -1,0 +1,143 @@
+<script>
+  (async () => {
+    //卡片配置
+    const singleCol = true //移动端：true独占一整行 false为标准宽度
+    //你有几个卡就写几个genCard
+    await genCard("123456")
+
+    async function genCard(cardNumber, name = "🐋新小鲸") {
+      try {
+        const data = new URLSearchParams();
+        data.append('card', cardNumber);
+        const response = await fetch("/api/proxy/--http://xjxj.iot889.cn/app/card/login", {
+          method: 'POST',
+          body: data,
+          headers: {
+            Host: "xjxj.iot889.cn",
+            'User-Agent': "...",
+            "content-type": "application/x-www-form-urlencoded",
+            "Origin": "http://xjxj.iot889.cn",
+            "Referer": "http://xjxj.iot889.cn/wap/"
+          },
+          credentials: 'omit'
+        });
+        const response1 = await fetch("/api/proxy/--http://xjxj.iot889.cn/app/client/card/get", {
+          method: 'GET',
+          headers: {
+            Host: "xjxj.iot889.cn",
+            'User-Agent': "...",
+            "content-type": "application/json;charset=UTF-8",
+            "Referer": "http://xjxj.iot889.cn/wap/pages/home/home",
+            "Kano-Cookie": response.headers.get('kano-setck').split(';')[0]
+          },
+          credentials: 'omit'
+        });
+
+
+        if (!response.ok) throw new Error(await response.text());
+        if (!response1.ok) throw new Error(await response1.text());
+        //处理返回体
+        let res = (await response.json())?.data
+        let res1 = (await response1.json())?.data
+
+        const card = {
+          usedData: res1.realUsed,
+          totalData: res1.realUsed + res1.free,
+          expireDate: res1.expirationTime,
+          getOp: () => {
+            let opr = "未知"
+            if (res.showName.includes('移动')) return `${name}移动`
+            else if (res.showName.includes('联通')) return `${name}联通`
+            else if (res.showName.includes('电信')) return `${name}电信`
+            else return `${name}卡`
+          },
+          isDisabled: false,
+          disabledReason: ""
+        };
+
+        const usedData = card.usedData
+        const totalData = card.totalData
+        const op = card.getOp()
+        const expireDate = card.expireDate
+
+        const isDisabled = card.isDisabled
+        const netCard = document.querySelector('.net-card');
+        const el = document.createElement('div')
+        const el_title = document.createElement('div')
+        const mask = document.createElement('div')
+        mask.style.width = "100%"
+        mask.style.height = "100%"
+        mask.style.backgroundColor = "rgba(0,0,0,.5)"
+        mask.style.display = 'flex'
+        mask.style.justifyContent = 'center'
+        mask.style.alignItems = 'center'
+        mask.style.position = 'absolute'
+        mask.style.top = '0'
+        mask.style.left = '0'
+        mask.style.borderRadius = '10px'
+        mask.innerHTML = isDisabled ? card.disabledReason : ""
+        el.style.margin = '4px'
+        singleCol && (el.style.gridColumn = '1/-1')
+        el.style.marginLeft = '0px'
+        el.style.marginRight = '0px'
+        el.style.position = 'relative'
+        el_title.style.position = 'absolute'
+        el_title.style.right = '6px'
+        el_title.style.top = '6px'
+        el.style.width = '200px'
+        el.classList.add('wlk')
+        el.classList.add('statusCard')
+        el.classList.add('net-card')
+        el.style.position = 'relative'
+        el.style.padding = "6px 8px 8px 8px"
+        el.style.fontSize = '.7rem'
+        el.style.boxSizing = 'border-box'
+        el.style.height = '60px'
+        el.onclick = () => {
+          createToast(`${op}卡号:${cardNumber}`)
+        }
+        const used = (Number(usedData) / 1024).toFixed(2)
+        const total = (Number(totalData) / 1024).toFixed(2)
+        el.innerHTML = `
+    有效期:${expireDate?.split(' ')[0]}<br/>
+    ${(Number(usedData) / 1024).toFixed(2)}GB/${(Number(totalData) / 1024).toFixed(2)}GB
+    ${kano_parseSignalBar(((used / total) * 100).toFixed(2), 0, 100, 90, 60, { g: 'red', o: 'orange', r: 'var(--dark-btn-color-active)' })}
+    `
+        el_title.innerHTML = op
+        el.appendChild(el_title)
+        isDisabled && el.appendChild(mask)
+        netCard?.parentElement?.appendChild(el)
+      } catch (e) {
+        createToast(name + "卡片：" + cardNumber + " 请求失败，" + e.message, 'red')
+      }
+    }
+  })()
+</script>
+<style>
+  .statusCard {
+    box-sizing: border-box
+  }
+
+  .wlk {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .wlk .signal_bar {
+    width: 100%;
+    margin-top: 0.1rem;
+    box-sizing: border-box;
+  }
+
+  .wlk .signal_bar .text::after {
+    content: " %";
+  }
+
+  @media (max-width: 650px) {
+    .wlk {
+      margin-left: 3px !important;
+      margin-right: 3px !important;
+    }
+  }
+</style>

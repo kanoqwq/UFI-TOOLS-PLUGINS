@@ -1,0 +1,9 @@
+<script>
+(()=>{
+const oc = createToast
+createToast = (text, color, delay = 3000)=>{
+    if(text && text.includes('更新') && text.includes('发现')) return
+    oc(text, color, delay)
+}
+})()
+</script>

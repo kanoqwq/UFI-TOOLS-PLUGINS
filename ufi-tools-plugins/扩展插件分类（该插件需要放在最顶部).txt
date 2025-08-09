@@ -1,0 +1,36 @@
+<script>
+    // 工具箱核心（保持原有折叠功能）
+    (function(){
+        // 1. 创建工具箱容器（与原有结构一致）
+        const toolBox = document.createElement('div');
+        toolBox.innerHTML = `
+            <div class="title" style="margin:6px 0;">
+                <strong>工具箱</strong>
+                <div style="display:inline-block;" id="collapse_toolbox_btn"></div>
+            </div>
+            <div class="collapse" id="collapse_toolbox" data-name="close" style="transition:all 0.1s;height:0;overflow:hidden;">
+                <div class="collapse_box" id="toolbox_buttons" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+            </div>
+        `;
+        
+        // 2. 挂载到页面
+        const menuSection = document.querySelector('.collapse_box') || document.body;
+        menuSection.appendChild(toolBox);
+        
+        // 3. 初始化折叠系统
+        if (typeof collapseGen === 'function') {
+            collapseGen("#collapse_toolbox_btn", "#collapse_toolbox",'collapse_toolbox');
+        }
+    
+        // 4. 重定向按钮添加到正确容器
+        const originalAppendChild = HTMLElement.prototype.appendChild;
+        HTMLElement.prototype.appendChild = function(element) {
+            if (this === collapseBtn_menu?.nextElementSibling?.querySelector('.collapse_box') && 
+                element.tagName === 'BUTTON') {
+                return document.getElementById('toolbox_buttons').appendChild(element);
+            }
+            return originalAppendChild.call(this, element);
+        };
+    })();
+    </script>
+    

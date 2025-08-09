@@ -1,0 +1,32 @@
+<script>
+    (() => {
+        const refreshBtn_kano = document.createElement('button')
+        const bg_kano = document.querySelector('#BG')
+        const img_kano = localStorage.getItem('backgroundUrl') || "";
+        refreshBtn_kano.textContent = "提取BOOT"
+        refreshBtn_kano.onclick = async () => {
+            try {
+                const res = await runShellWithRoot("getprop ro.boot.slot_suffix")
+                let ab = res.content.includes('a') ? "A":"B"
+                createToast(`你当前的分区是：${ab}`, '')
+
+                createToast(`正在下载：boot_${ab}.img`, '')
+                await runShellWithRoot('mkdir /data/data/com.minikano.f50_sms/files/uploads')
+                const outFile = `boot_${ab.toLowerCase()}.img`
+                await runShellWithRoot(`rm -f /data/data/com.minikano.f50_sms/files/uploads/${outFile}`)
+                const command = `dd if=/dev/block/by-name/boot_${ab.toLowerCase()} of=/data/data/com.minikano.f50_sms/files/uploads/${outFile}`
+                let result = await runShellWithRoot(command)
+                //开始下载
+                const outLink = `/api/uploads/${outFile}`
+                const a = document.createElement('a')
+                a.href = outLink
+                a.download = outFile
+                a.click()
+            } catch {
+                createToast(`执行错误`, 'red')
+            }
+
+        }
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+    })()
+</script>

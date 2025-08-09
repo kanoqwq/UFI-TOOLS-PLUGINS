@@ -1,0 +1,13 @@
+<script>
+(() => {
+    const refreshBtn_kano = document.createElement('button')
+    const bg_kano = document.querySelector('#BG')
+    const img_kano = localStorage.getItem('backgroundUrl') || "";
+    refreshBtn_kano.textContent = "ping百度"
+    refreshBtn_kano.onclick = async() => {
+        const res = await runShellWithRoot("ping -c 3 baidu.com")
+        createToast(res.content.replaceAll('\n', "<br>"), '', 10000)
+    }
+    collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>

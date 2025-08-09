@@ -1,0 +1,142 @@
+<script>
+    (async () => {
+        const plugin_name = "kano_sprd_diag_imei"
+        const plugin_title = "强力查询IMEI(by_minikano)"
+        const SH_FILE = "/data/local/tmp/kano_sprd_diag_imei.sh"
+        const REQ_BIN = "/data/local/tmp/diag_req.bin"
+        const RESP_BIN = "/data/local/tmp/diag_resp.bin"
+
+        const SCRIPT_CONTENT = `
+        #!/system/bin/sh
+
+DIAG_DEV="/dev/sdiag_nr"
+REQ_HEX="7e00000000000800007e7effffffff000800007e7e030000000a005e8100007e"
+REQ_BIN="${REQ_BIN}"
+RESP_BIN="${RESP_BIN}"
+
+echo "$REQ_HEX" | xxd -r -p > "$REQ_BIN"
+rm -f "$RESP_BIN"
+
+if command -v lsof >/dev/null 2>&1; then
+  for pid in $(lsof "$DIAG_DEV" 2>/dev/null | awk 'NR>1 {print $2}'); do
+    kill -9 "$pid" 2>/dev/null
+  done
+fi
+
+timeout 1 cat "$DIAG_DEV" > "$RESP_BIN" &
+READ_PID=$!
+
+sleep 0.1
+cat "$REQ_BIN" > "$DIAG_DEV"
+
+wait $READ_PID
+
+size=$(stat -c %s "$RESP_BIN" 2>/dev/null || echo 0)
+if [ "$size" -eq 0 ]; then
+  echo "❌ 读取超时或无数据"
+  exit 1
+fi
+
+HEX_CONTENT=$(xxd -p "$RESP_BIN" | tr -d '\n')
+
+START_POS=$(echo "$HEX_CONTENT" | grep -b -o "7e03" | head -1 | cut -d: -f1)
+
+if [ -z "$START_POS" ]; then
+  echo "❌ 未找到 IMEI 数据起始位置"
+  exit 1
+fi
+
+BYTE_START=$((START_POS / 2 + 9))
+
+IMEI_HEX=$(dd if="$RESP_BIN" bs=1 skip=$BYTE_START count=8 2>/dev/null | xxd -p)
+
+imei=""
+
+i=0
+while [ $i -lt 16 ]; do
+  byte_index=$((i / 2))
+  pos=$((byte_index * 2 + 1))
+  high_nibble=$(echo "$IMEI_HEX" | cut -c $pos)
+  low_nibble=$(echo "$IMEI_HEX" | cut -c $((pos+1)))
+  if [ $((i % 2)) -eq 0 ]; then
+    imei="$imei$low_nibble"
+  else
+    imei="$imei$high_nibble"
+  fi
+  i=$((i + 1))
+done
+imei=$(echo "$imei" | sed 's/^a//')
+imei=$(echo "$imei" | cut -c1-15)
+echo "$imei"
+
+rm -f ${REQ_BIN}
+rm -f ${RESP_BIN}
+rm -f ${SH_FILE}
+`
+
+        //检查高级功能是否开启
+        const checkRoot = async () => {
+            try {
+                const res = await runShellWithRoot('whoami');
+                return res.success && res.content.includes('root');
+            } catch {
+                return false;
+            }
+        };
+
+        //上传脚本文件，移动到机内目标目录
+        const uploadFile = async (filename, content, destPath) => {
+            try {
+                const file = new File([content], filename, { type: "text/plain" });
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const uploadRes = await (await fetch(`${KANO_baseURL}/upload_img`, {
+                    method: "POST",
+                    headers: common_headers,
+                    body: formData,
+                })).json();
+
+                if (uploadRes.url) {
+                    const tempPath = `/data/data/com.minikano.f50_sms/files${uploadRes.url}`;
+                    const moveRes = await runShellWithRoot(`mv ${tempPath} ${destPath}`);
+                    if (moveRes.success) {
+                        return true;
+                    } else { throw new Error(`移动文件失败: ${moveRes.content}`); }
+                } else { return false; }
+            } catch (e) {
+                return false;
+            }
+        };
+
+
+        const query = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+
+            createToast("查询中,请稍后...", "pink")
+
+            //上传
+            if (!await uploadFile(`${plugin_name}.sh`, SCRIPT_CONTENT, SH_FILE)) {
+                return createToast("传输文件失败！", "red")
+            }
+            const res = await runShellWithRoot(`sh ${SH_FILE}`)
+            createToast(`
+        <div style="pointer-events:all">成功! IMEI:<span style="font-weight:bolder" onclick="copyText(event)">${res.content}</span></div>
+        `, "", 10000)
+        }
+
+        const btn = document.createElement('button')
+        btn.textContent = plugin_title
+        let disabled = false
+        btn.onclick = async (e) => {
+            if (disabled) { return createToast("请勿频繁操作", 'red') }
+            disabled = true
+            await query()
+            disabled = false
+        }
+        document.querySelector('.actions-buttons').appendChild(btn)
+    })();
+</script>

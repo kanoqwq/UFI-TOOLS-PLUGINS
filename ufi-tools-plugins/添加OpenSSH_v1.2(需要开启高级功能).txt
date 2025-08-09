@@ -1,0 +1,131 @@
+<script>
+    (() => {
+        const btn_enabled = document.createElement('button')
+        btn_enabled.textContent = "安装SSH"
+        btn_enabled.onclick = async () => {
+            createToast("下载openSSH...")
+            const res1 = await runShellWithRoot(`
+        /data/data/com.minikano.f50_sms/files/curl -L https://pan.kanokano.cn/d/UFI-TOOLS-UPDATE/plugins/kano_ssh.zip -o /data/kano_ssh.zip
+        `,100*1000)
+            if (!res1.success) return createToast("下载openSSH依赖失败!", 'red')
+
+            createToast("解压openSSH文件...")
+            const res2 = await runShellWithRoot(`
+        cd /data/
+        mkdir -p ssh
+        unzip kano_ssh.zip -d /data/ssh/
+        `)
+            if (!res2.success) return createToast("解压openSSH文件出错!", 'red')
+
+            createToast("检查openSSH依赖文件，可能需要一点时间...")
+            const res3 = await runShellWithRoot(`
+        ls /data/ssh
+        `)
+            if (!res3.success || !res3.content.includes('install.sh')) return createToast("检查openSSH依赖文件失败!", 'red')
+
+            createToast("修改openSSH目录权限...")
+            const res4 = await runShellWithRoot(`
+        sh /data/ssh/install.sh
+        `)
+            if (!res4.success) return createToast("修改openSSH目录权限失败!", 'red')
+
+            createToast("设置SSHD自启动...")
+            const res5 =  await runShellWithRoot(`grep -qxF '/data/ssh/common/opensshd.init start' /sdcard/ufi_tools_boot.sh || echo '/data/ssh/common/opensshd.init start' >> /sdcard/ufi_tools_boot.sh`)
+
+            if (!res5.success) return createToast("设置SSHD自启动失败!", 'red')
+
+            createToast("启动SSHD...")
+            const res6 = await runShellWithRoot(`
+        /data/ssh/common/opensshd.init start
+        `)
+            if (!res6.success) return createToast("启动SSHD失败!", 'red')
+
+            createToast(`<div style="width:300px;text-align:center">
+                设置SSHD成功！<br />登录公钥key在内部存储/ufi_ssh_key_id_ed25519<br />注：处于安全考虑，请务必更换为自己的公钥
+        </div>
+        `, '', 10000)
+        }
+        const btn_disabled = document.createElement('button')
+        btn_disabled.textContent = "卸载SSH"
+        btn_disabled.onclick = async () => {
+            const res = await runShellWithRoot(`
+        /data/ssh/common/opensshd.init stop
+        rm -rf /data/ssh
+        sed -i '/opensshd/d' /sdcard/ufi_tools_boot.sh
+        `)
+            if (!res.success) return createToast("卸载失败！", 'red')
+            createToast("卸载成功！", 'red')
+        }
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(btn_enabled)
+        collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(btn_disabled);
+        (() => {
+            //一键上传公钥
+            const uploadEl = document.createElement('input')
+            uploadEl.type = 'file'
+            uploadEl.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    console.log(file);
+                    // 检查文件大小
+                    if (file.size > 1 * 1024 * 1024) {
+                        createToast(`文件大小不能超过${1}MB！`, 'red')
+                    } else {
+                        try {
+                            const reader = new FileReader();
+                            reader.onload = async function () {
+                                const text = reader.result;
+                                //导入
+                                try {
+                                    let isRootFileFound = await runShellWithRoot(`ls /data/ssh/root/.ssh/authorized_keys`)
+                                    let isShellFileFound = await runShellWithRoot(`ls /data/ssh/shell/.ssh/authorized_keys`)
+                                    if (!isRootFileFound.success || !isShellFileFound.success) throw new Error("没有安装OpenSSH")
+                                    if (!isRootFileFound.content?.includes('root')) throw new Error("root用户目录不全")
+                                    if (!isShellFileFound.content?.includes('shell')) throw new Error("shell用户目录不全")
+                                    //执行导入逻辑
+                                    const realText = text?.replace("\n", "")?.trim()
+                                    if (realText && realText != '') {
+                                        let res1 = await runShellWithRoot(`echo "${realText}" > /data/ssh/root/.ssh/authorized_keys`)
+                                        let res2 = await runShellWithRoot(`echo "${realText}" > /data/ssh/shell/.ssh/authorized_keys`)
+                                        if (!res1.success || !res2.success) throw new Error("导入公钥失败！")
+                                        let res3 = await runShellWithRoot(`                             
+                                        chown shell:shell "/data/ssh/shell" "/data/ssh/shell/.ssh"
+                                        chmod 700 "/data/ssh/shell" "/data/ssh/shell/.ssh"
+                                        chown shell:shell "/data/ssh/shell/.ssh/authorized_keys"
+                                        chmod 600 "/data/ssh/shell/.ssh/authorized_keys"
+                                        chown root:root "/data/ssh/root" "/data/ssh/root/.ssh"
+                                        chmod 700 "/data/ssh/root" "/data/ssh/root/.ssh"
+                                        chown root:root "/data/ssh/root/.ssh/authorized_keys"
+                                        chmod 600 "/data/ssh/root/.ssh/authorized_keys"
+                                        `)
+                                        if (!res3.success) throw new Error("设置公钥目录权限失败！")
+                                        createToast(`导入成功!`, 'green')
+                                    }
+                                } catch (e) {
+                                    createToast(`${e.message} 执行脚本失败!`, 'red')
+                                }
+                            };
+                            reader.onerror = function () {
+                                createToast(`读取文件失败!`, 'red')
+                            };
+                            reader.readAsText(file);
+                        }
+                        catch (e) {
+                            console.error(e);
+                            createToast(`上传失败!`, 'red')
+                        } finally {
+                            document.querySelector('#fileUploader').value = ''
+                        }
+                    }
+                }
+            }
+            const uploadBtn = document.createElement('button')
+            uploadBtn.classList.add('btn')
+            uploadBtn.textContent = "上传公钥"
+
+            uploadBtn.onclick = () => {
+                uploadEl.click()
+            }
+            collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(uploadBtn)
+        })()
+    })()
+</script>

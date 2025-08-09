@@ -1,0 +1,26 @@
+<script>
+(()=>{
+let value = 0;
+let increasing = true;
+
+requestInterval(() => {
+    getColorByPercent({
+        target: {
+            value
+        }
+    });
+
+    if (increasing) {
+        value++;
+        if (value >= 100) {
+            increasing = false;
+        }
+    } else {
+        value--;
+        if (value <= 0) {
+            increasing = true;
+        }
+    }
+}, 10);
+})()
+</script>

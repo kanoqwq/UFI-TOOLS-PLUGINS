@@ -1,0 +1,41 @@
+<script>
+(async()=>{
+const checkAdvanceFunc = async () => {
+    const res = await runShellWithRoot('whoami')
+    if (res.content) {
+        if (res.content.includes('root')) {
+            return true
+        }
+    }
+    return false
+}
+const refreshBtn_kano = document.createElement('button')
+refreshBtn_kano.textContent = "禁用系统更新";
+refreshBtn_kano.onclick = async()=>{
+    if (!await checkAdvanceFunc()) {
+        createToast("请先启用高级功能",'red');
+        return;
+    }
+    let res = await runShellWithRoot("pm disable com.zte.zdm")
+    let res1 = await runShellWithRoot("pm uninstall -k --user 0 com.zte.zdm ")
+    let res2 = await runShellWithRoot("pm uninstall -k --user 0 cn.zte.aftersale")
+    let res3 = await runShellWithRoot("pm uninstall -k --user 0 com.zte.zdmdaemon")
+    let res4 = await runShellWithRoot("pm uninstall -k --user 0 com.zte.zdmdaemon.install")
+    let res5 = await runShellWithRoot("pm uninstall -k --user 0 com.zte.analytics")
+    let res6 = await runShellWithRoot("pm uninstall -k --user 0 com.zte.neopush")
+    createToast(`
+    <div style="min-width:200px;font-size:12px">
+    <p>已禁用系统更新,请检查是否生效！</p>
+    <p>${res.content}</p>
+    <p>${res1.content}</p>
+    <p>${res2.content}</p>
+    <p>${res3.content}</p>
+    <p>${res4.content}</p>
+    <p>${res5.content}</p>
+    <p>${res6.content}</p>
+    </div>
+    `,'');
+}
+collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>

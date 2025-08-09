@@ -1,0 +1,455 @@
+<script>
+    (() => {
+        const _config = {
+            cpuMode: 'schedutil',
+            little_core_freq: ['614400', '614400', '614400', '614400'],
+            big_core_freq: ['768000', '768000', '768000', '768000'],
+            coreSwitch: [1, 1, 1, 1, 1, 1, 1, 1]
+        }
+
+        const toggleCoreEnable = (el = "#kano_little_core_set", flag = true) => {
+            const core_set = document.querySelector(el)
+            const selects = core_set.querySelectorAll('select')
+            selects.forEach(el => {
+                el.disabled = !flag
+            })
+        }
+
+        const save = async (target) => {
+            const shText = `#!/system/bin/sh
+echo ${target.coreSwitch[0]} > /sys/devices/system/cpu/cpu0/online
+echo ${target.coreSwitch[1]} > /sys/devices/system/cpu/cpu1/online
+echo ${target.coreSwitch[2]} > /sys/devices/system/cpu/cpu2/online
+echo ${target.coreSwitch[3]} > /sys/devices/system/cpu/cpu3/online
+echo ${target.coreSwitch[4]} > /sys/devices/system/cpu/cpu4/online
+echo ${target.coreSwitch[5]} > /sys/devices/system/cpu/cpu5/online
+echo ${target.coreSwitch[6]} > /sys/devices/system/cpu/cpu6/online
+echo ${target.coreSwitch[7]} > /sys/devices/system/cpu/cpu7/online
+sleep 2
+for i in 0 1 2 3 4 5 6 7; do
+    echo ${target.cpuMode} > /sys/devices/system/cpu/cpu$i/cpufreq/scaling_governor
+done
+sleep 2
+${(() => {
+                    if (target.cpuMode == "userspace") {
+                        return `
+echo ${target.little_core_freq[0]} > /sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
+echo ${target.little_core_freq[1]} > /sys/devices/system/cpu/cpu1/cpufreq/scaling_setspeed
+echo ${target.little_core_freq[2]} > /sys/devices/system/cpu/cpu2/cpufreq/scaling_setspeed
+echo ${target.little_core_freq[3]} > /sys/devices/system/cpu/cpu3/cpufreq/scaling_setspeed
+echo ${target.big_core_freq[0]} > /sys/devices/system/cpu/cpu4/cpufreq/scaling_setspeed
+echo ${target.big_core_freq[1]} > /sys/devices/system/cpu/cpu5/cpufreq/scaling_setspeed
+echo ${target.big_core_freq[2]} > /sys/devices/system/cpu/cpu6/cpufreq/scaling_setspeed
+echo ${target.big_core_freq[3]} > /sys/devices/system/cpu/cpu7/cpufreq/scaling_setspeed
+`
+                    } else {
+                        return ''
+                    }
+                })()
+                }
+            `
+            // 上传文件
+            const blob = new Blob([shText], { type: "text/plain" });
+            const file = new File([blob], 'ufi_plugin_cpu_adjust.sh', { type: "text/plain" });
+            const formData = new FormData();
+            formData.append("file", file);
+            const res = await (await fetch(`${KANO_baseURL}/upload_img`, {
+                method: "POST",
+                headers: common_headers,
+                body: formData,
+            })).json()
+            if (res.url) {
+                try {
+                    let r1 = await runShellWithRoot(`mv /data/data/com.minikano.f50_sms/files${res.url} /sdcard/ufi_plugin_cpu_adjust.sh`)
+                    if (!r1.success) throw ""
+                    const cmd = `grep -qxF 'sh /sdcard/ufi_plugin_cpu_adjust.sh' /sdcard/ufi_tools_boot.sh || echo 'sh /sdcard/ufi_plugin_cpu_adjust.sh' >> /sdcard/ufi_tools_boot.sh`
+                    // const cmd_remove = `sed -i '/^sh \/sdcard\/ufi_plugin_cpu_adjust.sh$/d' /sdcard/ufi_tools_boot.sh`
+                    await runShellWithRoot(cmd)
+                }
+                catch {
+                    // createToast('同步开机脚本失败！')
+                }
+            }
+        }
+
+        const config = new Proxy(_config, {
+            get(target, prop) {
+                return async function () {
+                    switch (prop) {
+                        case "cpuMode": {
+                            const cpu_mode_select = document.querySelector('#cpu_mode_select')
+                            // 获取数据
+                            const res = await runShellWithRoot(`
+                                cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+                            `)
+                            const mode = res.content.replace('\n', '')
+                            if (res.success) {
+                                cpu_mode_select.value = mode
+                                _config[prop] = mode
+                            }
+                            break;
+                        }
+                        case "little_core_freq": {
+                            const kano_little_core_set = document.querySelector('#kano_little_core_set')
+                            const selects = kano_little_core_set.querySelectorAll('select')
+                            //获取数据
+                            const res_little_cores = await runShellWithRoot(`
+                                cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
+                                cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_setspeed
+                                cat /sys/devices/system/cpu/cpu2/cpufreq/scaling_setspeed
+                                cat /sys/devices/system/cpu/cpu3/cpufreq/scaling_setspeed
+                            `)
+
+                            if (res_little_cores.content.includes('unsupported')) {
+                                toggleCoreEnable('#kano_little_core_set', false)
+                                break
+                            } else {
+                                toggleCoreEnable('#kano_little_core_set', true)
+                                const coreValues = res_little_cores.content.split('\n')
+                                _config.little_core_freq = coreValues
+                                selects.forEach((el, index) => {
+                                    el.value = coreValues[index]
+                                })
+                            }
+                            break;
+                        }
+                        case "big_core_freq": {
+                            const kano_big_core_set = document.querySelector('#kano_big_core_set')
+                            const selects_big = kano_big_core_set.querySelectorAll('select')
+
+                            //获取数据
+                            const res_big_cores = await runShellWithRoot(`
+                                cat /sys/devices/system/cpu/cpu4/cpufreq/scaling_setspeed
+                                cat /sys/devices/system/cpu/cpu5/cpufreq/scaling_setspeed
+                                cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_setspeed
+                                cat /sys/devices/system/cpu/cpu7/cpufreq/scaling_setspeed
+                            `)
+                            if (res_big_cores.content.includes('unsupported')) {
+                                toggleCoreEnable('#kano_big_core_set', false)
+                                break
+                            } else {
+                                toggleCoreEnable('#kano_big_core_set', true)
+                                const coreValues = res_big_cores.content.split('\n')
+                                _config.big_core_freq = coreValues
+                                selects_big.forEach((el, index) => {
+                                    el.value = coreValues[index]
+                                })
+                            }
+                            break;
+                        }
+                    }
+                    return target[prop]
+                }
+            },
+            set(target, prop, value) {
+                target[prop] = value
+                switch (prop) {
+                    case "cpuMode":
+                        createToast(`当前模式：${value}`)
+                        if (target[prop] == 'userspace') {
+                            //顺便设置一下频率
+                            toggleCoreEnable('#kano_little_core_set', true)
+                            toggleCoreEnable('#kano_big_core_set', true)
+                        } else {
+                            toggleCoreEnable('#kano_little_core_set', false)
+                            toggleCoreEnable('#kano_big_core_set', false)
+                        }
+                        runShellWithRoot(`
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu3/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu5/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor
+                            echo ${target[prop]} > /sys/devices/system/cpu/cpu7/cpufreq/scaling_governor
+                        `).then(res => {
+                            if (!res.success) return createToast('修改失败！', 'red')
+                            createToast('修改成功！', 'pink')
+                        })
+                        break;
+
+                    case "little_core_freq":
+                        runShellWithRoot(`
+                            echo ${target[prop][0]} > /sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed
+                            echo ${target[prop][1]} > /sys/devices/system/cpu/cpu1/cpufreq/scaling_setspeed
+                            echo ${target[prop][2]} > /sys/devices/system/cpu/cpu2/cpufreq/scaling_setspeed
+                            echo ${target[prop][3]} > /sys/devices/system/cpu/cpu3/cpufreq/scaling_setspeed
+                          
+                        `).then(res => {
+                            if (!res.success) return createToast('修改失败！', 'red')
+                            createToast('修改成功！', 'pink')
+                        })
+                        break;
+
+                    case "big_core_freq":
+                        runShellWithRoot(`
+                            echo ${target[prop][0]} > /sys/devices/system/cpu/cpu4/cpufreq/scaling_setspeed
+                            echo ${target[prop][1]} > /sys/devices/system/cpu/cpu5/cpufreq/scaling_setspeed
+                            echo ${target[prop][2]} > /sys/devices/system/cpu/cpu6/cpufreq/scaling_setspeed
+                            echo ${target[prop][3]} > /sys/devices/system/cpu/cpu7/cpufreq/scaling_setspeed
+                        `).then(res => {
+                            if (!res.success) return createToast('修改失败！', 'red')
+                            createToast('修改成功！', 'pink')
+                        })
+                        break;
+                    case "coreSwitch":
+                        break;
+                }
+                //持久化
+                save(target)
+                return true
+            }
+        })
+
+        const cpuAdjustModal = () => {
+            const modal = document.createElement('div')
+            modal.id = "cpuModal"
+            modal.style.cssText = 'display:none'
+            modal.classList.add('modal')
+            modal.innerHTML = `
+            <div class="title">CPU调节器</div>
+            <div class="content" style="max-height: 90%;overflow-y: scroll; padding-top: 10px; width: 66vw; max-width: 400px;">
+                <div class="card-inner" id="kano_cpu_list">
+                </div>
+                <div style="margin-top: 10px;display: flex; font-size: 12px; align-items: center;">
+                        <div class="title" style="font-size:12px;">CPU模式:&nbsp;</div>
+                        <select  style="padding:4px" class="select" id="cpu_mode_select">
+                            <option value="schedutil">智能</option>
+                            <option value="userspace">手动</option>
+                            <option value="conservative">平衡</option>
+                            <option value="powersave">省电</option>
+                            <option value="performance">高性能</option>
+                        </select>
+                </div>
+                <div class="item" style="margin: 10px auto;display: flex;gap: 6px;flex-direction: column;">
+                <div style="display: flex;gap: 10px;align-items: center;">
+                    <div>
+                        <div class="title" style="font-size:12px">小核锁频率</div>
+                        <div id="kano_little_core_set" style="display:flex;flex-wrap:wrap;gap: 6px;">
+                            <div style="margin-top: 10px;;display: flex; font-size: 12px; align-items: center;">
+                                <select style="padding:4px" class="select" onchange="changeCoreFreq(event,0)">
+                                    <option value="614400">614MHz</option>
+                                    <option value="768000">768MHz</option>
+                                    <option value="936000">936MHz</option>
+                                    <option value="1105000">1105MHz</option>
+                                    <option value="1228800">1228MHz</option>
+                                    <option value="1404000">1404MHz</option>
+                                    <option value="1560000">1560MHz</option>
+                                    <option value="1703000">1703MHz</option>
+                                    <option value="1846000">1846MHz</option>
+                                    <option value="2002000">2002MHz</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="title" style="font-size:12px">大核锁频率</div>
+                        <div id="kano_big_core_set" style="display:flex;flex-wrap:wrap;gap: 6px;">
+                            <div style="margin-top: 10px;;display: flex; font-size: 12px; align-items: center;">
+                                <select style="padding:4px" class="select" onchange="changeCoreFreq(event,1)">
+                                    <option value="768000">768MHZ</option>
+                                    <option value="1157000">1157MHz</option>
+                                    <option value="1228800">1228MHz</option>
+                                    <option value="1326000">1326MHz</option>
+                                    <option value="1536000">1536MHz</option>
+                                    <option value="1703000">1703MHz</option>
+                                    <option value="1755000">1755MHz</option>
+                                    <option value="2054000">2054MHz</option>
+                                    <option value="2171000">2171MHz</option>
+                                    <option value="2301000">2301MHz</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                    <div class="title" style="font-size:12px;margin-top:6px">核心开关</div>
+                    <div id="little_cores" style="margin-top: 6px;display: flex; font-size: 12px;gap:4px;flex-wrap: wrap;">
+                        <button data-core="0">小核1</button>
+                        <button data-core="1">小核2</button>
+                        <button data-core="2">小核3</button>
+                        <button data-core="3">小核4</button>
+                    </div>
+                    <div id="big_cores" style="margin-top: 6px;display: flex; font-size: 12px;gap:4px;flex-wrap: wrap;">
+                        <button data-core="4">大核1</button>
+                        <button data-core="5">大核2</button>
+                        <button data-core="6">大核3</button>
+                        <button data-core="7">大核4</button>
+                    </div>
+                </div>
+                
+            </div>
+
+            <div class="btn" style="text-align: right;">
+                <button onclick="submit_cpu_settings()" data-i18n="submit_btn">提交</button>
+                <button type="button" id="close_cpu_btn" data-i18n="close_btn">关闭</button>
+            </div>`
+            return modal
+        }
+
+        const cpuCoreQuery = async (number = 0) => {
+            const shell = `cat /sys/devices/system/cpu/cpu${number}/online`
+            const result = await runShellWithRoot(shell)
+            if (result.success) {
+                return result.content && (result.content.replace('\n', ''))
+            }
+            return '0'
+        }
+        const cpuCoreToggle = async (number = 0, flag = true) => {
+            const shell = `echo ${flag ? '1' : '0'} > /sys/devices/system/cpu/cpu${number}/online`
+            const result = await runShellWithRoot(shell)
+            if (result.success) {
+                const t = [..._config.coreSwitch]
+                t[+number] = flag ? 1 : 0
+                config.coreSwitch = t
+                createToast(`${flag ? "开启" : "关闭"}核心${+number + 1}成功`, 'pink')
+            }
+            else {
+                createToast(`${flag ? "开启" : "关闭"}核心${number + 1}失败`, 'red')
+            }
+            await config.cpuMode()
+            await config.little_core_freq()
+            await config.big_core_freq()
+        }
+
+        const initCpuSwitch = async () => {
+            const little_cores = document.querySelectorAll('#little_cores button')
+            const big_cores = document.querySelectorAll('#big_cores button')
+            for (let el of little_cores) {
+                const i = el.dataset["core"]
+                let enabled = await cpuCoreQuery(i)
+                config.coreSwitch[i] = Number(enabled)
+                el.style.backgroundColor = enabled == '1' ? "var(--dark-btn-color-active)" : ""
+                el.onclick = async () => {
+                    await cpuCoreToggle(i, enabled == '1' ? false : true)
+                    el.style.backgroundColor = enabled == '1' ? "" : "var(--dark-btn-color-active)"
+                    enabled = enabled == '1' ? '0' : '1'
+                }
+            }
+            for (let el of big_cores) {
+                const i = el.dataset["core"]
+                let enabled = await cpuCoreQuery(i)
+                config.coreSwitch[i] = Number(enabled)
+                el.style.backgroundColor = enabled == '1' ? "var(--dark-btn-color-active)" : ""
+                el.onclick = async () => {
+                    await cpuCoreToggle(i, enabled == '1' ? false : true)
+                    el.style.backgroundColor = enabled == '1' ? "" : "var(--dark-btn-color-active)"
+                    enabled = enabled == '1' ? '0' : '1'
+                }
+            }
+        }
+
+        const freqGen = async () => {
+            const cpuFreqInfo = window.UFI_DATA && window.UFI_DATA.cpuFreqInfo
+            if (cpuFreqInfo) {
+                const value = cpuFreqInfo
+                const cpuFreqList = document.querySelector('#kano_cpu_list')
+                let html = '<div class="title" style="font-size:12px;margin-bottom:6px">小核簇</div>'
+                for (let i = 0; value[`cpu${i}`] != undefined && value[`cpu${i}`] != null; i++) {
+                    let cur = String(value[`cpu${i}`].cur)
+                    let cur_origin = String(value[`cpu${i}`].cur)
+                    let max = String(value[`cpu${i}`].max)
+                    // 通过使用率表判断核心启用状态
+                    let usgList = window.UFI_DATA.cpuUsageInfo
+                    if (usgList) {
+                        if (!usgList[`cpu${i}`]) {
+                            cur_origin = 0
+                        }
+                    }
+                    if (cur.length == 1) cur = `&nbsp;&nbsp;&nbsp;${cur}`
+                    else if (cur.length == 2) cur = `&nbsp;&nbsp;${cur}`
+                    else if (cur.length == 3) cur = `&nbsp;${cur}`
+                    const btnColor = getCssVariableColor('--dark-btn-color-active')
+                    if (i == 4) {
+                        html += `<div class="title" style="font-size:12px;margin-bottom:6px">大核簇</div>`
+                    }
+                    html += `<div style="margin:4px;display:inline-block">${kano_parseSignalBar(cur_origin, 0, max, max * 0.9, max * 0.9, {
+                        g: '#ffa5008f',
+                        o: '#ffa5008f',
+                        r: btnColor
+                    })}</div>`
+
+                }
+                cpuFreqList.innerHTML = html
+            }
+        }
+        let timer = null
+        const modal = cpuAdjustModal()
+        document.querySelector('.container').appendChild(modal)
+
+        const onClick = async (el) => {
+            showModal('#' + modal.id)
+
+            //初始化开关
+            await config.cpuMode()
+            await config.little_core_freq()
+            await config.big_core_freq()
+
+            if (timer) {
+                timer()
+            }
+            freqGen()
+            timer = requestInterval(() => { freqGen() }, 1000)
+            initCpuSwitch()
+            cpuModeChanger()
+        }
+
+        const cpuModeHandler = async (e) => {
+            if (e.target.value) {
+                config.cpuMode = e.target.value
+                //await config.cpuMode()
+                await config.little_core_freq()
+                await config.big_core_freq()
+            }
+        }
+
+        const cpuModeChanger = () => {
+            const cpu_mode_select = document.querySelector('#cpu_mode_select')
+            if (cpu_mode_select) {
+                cpu_mode_select.removeEventListener('change', cpuModeHandler)
+                cpu_mode_select.addEventListener('change', cpuModeHandler)
+            }
+        }
+
+        const changeCoreFreq = (e, codeNum) => {
+            if (codeNum == 0) {
+                _config.little_core_freq = [e.target.value, e.target.value, e.target.value, e.target.value]
+                config.little_core_freq = [..._config.little_core_freq]
+            }
+            else if (codeNum == 1) {
+                _config.big_core_freq = [e.target.value, e.target.value, e.target.value, e.target.value]
+                config.big_core_freq = _config.big_core_freq
+            }
+        }
+        window.changeCoreFreq = changeCoreFreq
+
+        const btn = document.createElement('button')
+        btn.textContent = "CPU调节器"
+        btn.onclick = () => onClick(btn)
+
+        const card = document.querySelector('.cpu-card')
+        if (card) {
+            card.onclick = () => onClick(card)
+        }
+
+        const btns = document.querySelector('.actions-buttons')
+        if (btns) {
+            btns.appendChild(btn)
+        }
+
+        const submit_cpu_settings = () => {
+            closeModal('#' + modal.id)
+            createToast("已保存至开机脚本", 'pink')
+            save(_config)
+        }
+        window.submit_cpu_settings = submit_cpu_settings
+
+        modal.querySelector('#close_cpu_btn').onclick = () => {
+            closeModal('#' + modal.id)
+            if (timer) {
+                timer()
+            }
+        }
+    })()
+</script>

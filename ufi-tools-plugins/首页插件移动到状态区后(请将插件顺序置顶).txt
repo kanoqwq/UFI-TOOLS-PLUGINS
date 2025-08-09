@@ -1,0 +1,15 @@
+<script>
+(()=>{
+const oInsert = HTMLElement.prototype.insertAdjacentHTML
+HTMLElement.prototype.insertAdjacentHTML = function(position, text) {
+    let ct = document.querySelector('.functions-container')
+    let that = this
+    if(ct && that === ct){
+        that = document.querySelector('.status-container')
+    }
+    if(!that) that = this
+    const fn = oInsert.bind(that)
+    return fn(position,text)
+}
+})()
+</script>

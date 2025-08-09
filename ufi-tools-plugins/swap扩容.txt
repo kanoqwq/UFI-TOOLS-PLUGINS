@@ -1,0 +1,228 @@
+<script>
+    (async () => {
+        const SH_FILE = "/sdcard/kano_swap.sh"
+        const LOG_FILE = "/data/swap_setup.log"
+        const BOOT_SH_FILE = "/sdcard/ufi_tools_boot.sh"
+        const SWAP_FILE = "/data/swapfile"
+        const SWAP_SIZE_MB = 1536 // 1.5GB
+        //配置
+        let CONFIG = {
+            enabled: false,
+            max_charge: 80,
+            start_charge: 20
+        }
+
+        const SCRIPT_CONTENT = `#!/system/bin/sh
+SWAP_FILE="${SWAP_FILE}"
+SWAP_SIZE_MB=${SWAP_SIZE_MB}
+LOG_FILE="${LOG_FILE}"
+
+log() {
+    echo "$@" | awk '{print}' >> "$LOG_FILE"
+}
+
+rm -f "$LOG_FILE"
+
+log "=== 开始设置 swap 文件 ==="
+
+log "[1/5] 创建 ${SWAP_SIZE_MB}MB swap 文件..."
+dd if=/dev/zero of="$SWAP_FILE" bs=1M count=$SWAP_SIZE_MB >>"$LOG_FILE" 2>&1
+if [ $? -ne 0 ]; then
+    log "❌ 创建 swap 文件失败，可能是存储空间不足或路径不可写。"
+    exit 1
+fi
+
+log "[2/5] 设置权限..."
+chmod 600 "$SWAP_FILE" >>"$LOG_FILE" 2>&1
+
+log "[3/5] 格式化为 swap..."
+mkswap "$SWAP_FILE" >>"$LOG_FILE" 2>&1
+if [ $? -ne 0 ]; then
+    log "❌ mkswap 失败，请确认 mkswap 命令可用。"
+    exit 1
+fi
+
+log "[4/5] 启用 swap (可能需要几分钟)..."
+swapon "$SWAP_FILE" >>"$LOG_FILE" 2>&1
+if [ $? -ne 0 ]; then
+    log "❌ swapon 失败，可能是内核不支持或权限问题。"
+    exit 1
+fi
+
+# Step 5: 显示使用情况
+log "[5/5] 当前 swap 状态："
+cat /proc/swaps | tee -a "$LOG_FILE"
+free -h | tee -a "$LOG_FILE"
+
+log "=== swap 设置完成 ==="
+`
+
+        function createFixedToast(_id, text, color) {
+            try {
+                const toastContainer = document.querySelector("#toastContainer")
+                const toastEl = document.createElement('div')
+                toastEl.id = _id
+                toastEl.style.padding = '10px'
+                toastEl.style.overflow = 'hidden'
+                toastEl.style.fontSize = '13px'
+                toastEl.style.width = "90vw"
+                toastEl.style.maxWidth = "800px"
+                toastEl.style.position = "relative"
+                toastEl.style.top = "0px"
+                toastEl.style.color = color || 'while'
+                toastEl.style.backgroundColor = 'var(--dark-card-bg)'
+                toastEl.style.transform = `scale(1)`
+                toastEl.style.transition = `all .3s ease`
+                toastEl.style.opacity = `0`
+                toastEl.style.transform = `scale(0)`
+                toastEl.style.transformOrigin = 'top center'
+                toastEl.style.boxShadow = '0 0 10px 0 rgba(135, 207, 235, 0.24)'
+                toastEl.style.fontWeight = 'bold'
+                toastEl.style.backdropFilter = 'blur(10px)'
+                toastEl.style.borderRadius = '6px'
+                toastEl.innerHTML = text;
+                const id = 'toastkano'
+                toastEl.setAttribute('class', id);
+                toastContainer.appendChild(toastEl)
+                setTimeout(() => {
+                    toastEl.style.opacity = `1`
+                    toastEl.style.transform = `scale(1)`
+                }, 50);
+                let timer = null
+                return {
+                    el: toastEl,
+                    fn: () => {
+                        toastEl.style.opacity = `0`
+                        toastEl.style.transform = `scale(0)`
+                        toastEl.style.top = '-' + toastEl.getBoundingClientRect().height + 'px'
+                        clearTimeout(timer)
+                        timer = setTimeout(() => {
+                            toastEl.remove()
+                        }, 300);
+                    }
+                }
+            } catch (e) {
+                createToast('创建toast失败:' + e)
+                console.error('创建toast失败:', e);
+            }
+        }
+
+        //检查高级功能是否开启
+        const checkRoot = async () => {
+            try {
+                const res = await runShellWithRoot('whoami');
+                return res.success && res.content.includes('root');
+            } catch {
+                return false;
+            }
+        };
+
+
+        //上传脚本文件，移动到机内目标目录
+        const uploadFile = async (filename, content, destPath) => {
+            try {
+                const file = new File([content], filename, { type: "text/plain" });
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const uploadRes = await (await fetch(`${KANO_baseURL}/upload_img`, {
+                    method: "POST",
+                    headers: common_headers,
+                    body: formData,
+                })).json();
+
+                if (uploadRes.url) {
+                    const tempPath = `/data/data/com.minikano.f50_sms/files${uploadRes.url}`;
+                    const moveRes = await runShellWithRoot(`mv ${tempPath} ${destPath}`);
+                    if (moveRes.success) {
+                        return true;
+                    } else { throw new Error(`移动文件失败: ${moveRes.content}`); }
+                } else { return false; }
+            } catch (e) {
+                return false;
+            }
+        };
+
+        //卸载
+        const uninstall = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+            createToast("卸载中...")
+            await runShellWithRoot(`sed -i '/swapon/d' /sdcard/ufi_tools_boot.sh`)
+            await runShellWithRoot(`swapoff ${SWAP_FILE}`)
+            await runShellWithRoot(`rm -rf ${SWAP_FILE}`)
+            await runShellWithRoot(`rm -rf ${SH_FILE}`)
+            isBtn1Disabled = false
+            isBtnDisabled = false
+            return createToast("已卸载")
+        }
+
+        //安装
+        const install = async () => {
+            if (!(await checkRoot())) {
+                createToast("没有开启高级功能，无法使用！", "red");
+                return false;
+            }
+            //上传
+            if (!await uploadFile("kano_swap.sh", SCRIPT_CONTENT, SH_FILE)) {
+                return createToast("传输文件失败！", "red")
+            }
+            await runShellWithRoot(`grep -qxF 'swapon /data/swapfile &' /sdcard/ufi_tools_boot.sh || echo 'swapon /data/swapfile &' >> /sdcard/ufi_tools_boot.sh`)
+            // await runShellWithRoot(`swapon /data/swapfile > /data/swap_op.log 2>&1 &`)
+            await runShellWithRoot(`sh ${SH_FILE} &`)
+
+            let log = ''
+            const max_times = 600 // 最多等待10分钟
+            let count_times = 0
+            const { el, fn } = createFixedToast("kano_swap_toast", `<pre style="white-space: pre-wrap;text-align: center;">等待日志中...</pre>`, '')
+
+            const interval = setInterval(async () => {
+                const dlog = await runShellWithRoot(`timeout 2s  awk '{print}' ${LOG_FILE}`)
+                const lines = dlog.content
+                el.innerHTML = `<pre style="white-space: pre-wrap;">${lines.replaceAll('\n', "<br>")}</pre>`
+                if (lines.includes('设置完成')) {
+                    createToast("设置SWAP完成,已启用并设为自启动")
+                    setTimeout(() => {
+                        fn()
+                    }, 3000);
+                    isBtnDisabled = false
+                    isBtn1Disabled = false
+                    clearInterval(interval)
+                }
+                if (count_times >= max_times) {
+                    fn()
+                    createToast("等待超时，请检查设备状态", "red")
+                    isBtnDisabled = false
+                    isBtn1Disabled = false
+                    clearInterval(interval)
+                }
+                count_times++
+            }, 1000)
+        }
+
+        const btn = document.createElement('button')
+        btn.textContent = "扩容SWAP"
+        let isBtnDisabled = false
+        btn.onclick = async (e) => {
+            if (isBtnDisabled) return;
+            isBtnDisabled = true
+            isBtn1Disabled = true
+            await install()
+        }
+
+        const btn1 = document.createElement('button')
+        btn1.textContent = "取消扩容SWAP"
+        let isBtn1Disabled = false
+
+        btn1.onclick = async (e) => {
+            if (isBtn1Disabled) return;
+            isBtn1Disabled = true
+            isBtnDisabled = true
+            await uninstall()
+        }
+        document.querySelector('.actions-buttons').appendChild(btn)
+        document.querySelector('.actions-buttons').appendChild(btn1)
+    })();
+</script>

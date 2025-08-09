@@ -1,0 +1,36 @@
+<script>
+(async()=>{
+const checkAdvanceFunc = async () => {
+    const res = await runShellWithRoot('whoami')
+    if (res.content) {
+        if (res.content.includes('root')) {
+            return true
+        }
+    }
+    return false
+}
+const refreshBtn_kano = document.createElement('button')
+refreshBtn_kano.textContent = "网络一键加速";
+refreshBtn_kano.onclick = async()=>{
+    if (!await checkAdvanceFunc()) {
+        createToast("请先启用高级功能",'red');
+        return;
+    }
+    let res = await runShellWithRoot(`
+  iptables -D INPUT -j zte_fw_net_limit
+  iptables -F zte_fw_net_limit
+  iptables -X zte_fw_net_limit
+  tc qdisc del dev sipa_eth0 root 2>/dev/null
+  tc qdisc del dev sipa_eth0 ingress 2>/dev/null
+  tc qdisc del dev br0 root 2>/dev/null
+  tc qdisc del dev br0 ingress 2>/dev/null
+  tc qdisc del dev wlan0 root 2>/dev/null
+  tc qdisc del dev wlan0 ingress 2>/dev/null
+`)
+    createToast(`
+    网络成功加速！
+    `,'');
+}
+collapseBtn_menu.nextElementSibling.querySelector('.collapse_box').appendChild(refreshBtn_kano)
+})()
+</script>
